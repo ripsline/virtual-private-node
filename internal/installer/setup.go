@@ -16,8 +16,7 @@ const (
     systemUser     = "bitcoin"
 )
 
-// installConfig holds all choices made during the interactive
-// setup phase. These are gathered before any installation begins.
+// installConfig holds all choices made during setup.
 type installConfig struct {
     network    *NetworkConfig
     components string // "bitcoin" or "bitcoin+lnd"
@@ -28,43 +27,79 @@ type installConfig struct {
 }
 
 // NeedsInstall returns true if the node has not been set up yet.
-// Checks for the config file written at the end of installation.
 func NeedsInstall() bool {
     _, err := os.Stat("/etc/rlvpn/config.json")
     return err != nil
 }
 
-// Run is the main installation entry point. It gathers config
-// from the user, installs components, and saves the config.
+// Run is the main installation entry point.
 func Run() error {
-    // Verify we're on Debian
     if err := checkOS(); err != nil {
         return err
     }
 
-    reader := bufio.NewReader(os.Stdin)
-    cfg := gatherConfig(reader)
+    // Launch the TUI to gather configuration
+    cfg, err := RunTUI()
+    if err != nil {
+        return err
+    }
+    if cfg == nil {
+        fmt.Println("\n  Installation cancelled.")
+        return nil
+    }
 
-    // Build the step list based on component choices
+    // If hybrid mode, we need the public IP
+    if cfg.p2pMode == "hybrid" {
+        reader := bufio.NewReader(os.Stdin)
+        cfg.publicIPv4 = detectPublicIP()
+        if cfg.publicIPv4 != "" {
+            fmt.Printf("\n  Detected public IPv4: %s\n", cfg.publicIPv4)
+            fmt.Print("  Use this IP? [Y/n]: ")
+            confirm := readLine(reader)
+            if strings.ToLower(confirm) == "n" {
+                fmt.Print("  Enter IPv4 manually: ")
+                cfg.publicIPv4 = readLine(reader)
+            }
+        } else {
+            fmt.Print("\n  Could not detect public IP. Enter IPv4: ")
+            cfg.publicIPv4 = readLine(reader)
+        }
+        if cfg.publicIPv4 == "" {
+            fmt.Println("  No IP entered — defaulting to Tor only.")
+            cfg.p2pMode = "tor"
+        }
+    }
+
+    // Build and run installation steps
     steps := buildSteps(cfg)
-
     total := len(steps)
+
+    fmt.Println()
     for i, step := range steps {
-        fmt.Printf("\n  [%d/%d] %s...\n", i+1, total, step.name)
+        fmt.Printf("  [%d/%d] %s...\n", i+1, total, step.name)
         if err := step.fn(); err != nil {
             return fmt.Errorf("%s failed: %w", step.name, err)
         }
         fmt.Printf("  ✓ %s\n", step.name)
     }
 
-    // LND wallet creation — separate phase with clear messaging
+    // LND wallet creation — separate interactive phase
     if cfg.components == "bitcoin+lnd" {
+        reader := bufio.NewReader(os.Stdin)
         if err := walletCreationPhase(cfg, reader); err != nil {
             return err
         }
     }
 
-    // Save the persistent config
+    // Configure shell environment
+    fmt.Println("\n  Configuring shell environment...")
+    if err := setupShellEnvironment(cfg); err != nil {
+        fmt.Printf("  Warning: shell setup failed: %v\n", err)
+    } else {
+        fmt.Println("  ✓ Shell environment configured")
+    }
+
+    // Save persistent config
     appCfg := &config.AppConfig{
         Network:    cfg.network.Name,
         Components: cfg.components,
@@ -76,20 +111,15 @@ func Run() error {
         return fmt.Errorf("save config: %w", err)
     }
 
-    // Print completion message
     printComplete(cfg)
-
     return nil
 }
 
-// step is a named installation step.
 type step struct {
     name string
     fn   func() error
 }
 
-// buildSteps returns the ordered list of installation steps
-// based on the user's component choices.
 func buildSteps(cfg *installConfig) []step {
     steps := []step{
         {"Creating system user", func() error { return createSystemUser(systemUser) }},
@@ -118,9 +148,6 @@ func buildSteps(cfg *installConfig) []step {
     return steps
 }
 
-// walletCreationPhase handles the interactive wallet creation.
-// This is intentionally separated from the automated steps
-// so the user understands they are creating their own wallet.
 func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
     fmt.Println()
     fmt.Println("  ═══════════════════════════════════════════")
@@ -132,9 +159,10 @@ func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
     fmt.Println("  LND will ask you to:")
     fmt.Println("    1. Enter a wallet password (min 8 characters)")
     fmt.Println("    2. Confirm the password")
-    fmt.Println("    3. Optionally set a cipher seed passphrase")
+	fmt.Println("    3. 'n' to create a new seed")
+    fmt.Println("    4. Optionally set a cipher seed passphrase")
     fmt.Println("       (press Enter to skip)")
-    fmt.Println("    4. Write down your 24-word seed phrase")
+    fmt.Println("    5. Write down your 24-word seed phrase")
     fmt.Println()
     fmt.Println("  ⚠️  Your seed phrase is the ONLY way to recover funds.")
     fmt.Println("  ⚠️  No one can help you if you lose it.")
@@ -142,7 +170,6 @@ func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
     fmt.Print("  Press Enter to continue...")
     reader.ReadString('\n')
 
-    // Wait for LND REST to be ready
     fmt.Println()
     fmt.Println("  Waiting for LND to be ready...")
     if err := waitForLND(); err != nil {
@@ -198,137 +225,6 @@ func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
     return nil
 }
 
-// gatherConfig asks the user all configuration questions
-// before any installation begins.
-func gatherConfig(reader *bufio.Reader) *installConfig {
-    cfg := &installConfig{
-        sshPort: 22,
-    }
-
-    // Network
-    fmt.Println("  ? Network:")
-    fmt.Println("    1) Mainnet (real bitcoin)")
-    fmt.Println("    2) Testnet4 (test bitcoin)")
-    fmt.Print("    Select [1/2]: ")
-    choice := readLine(reader)
-    if choice == "1" {
-        cfg.network = Mainnet()
-    } else {
-        cfg.network = Testnet4()
-    }
-
-    // Components
-    fmt.Println()
-    fmt.Println("  ? Components:")
-    fmt.Println("    1) Bitcoin Core only (pruned node over Tor)")
-    fmt.Println("    2) Bitcoin Core + LND (Lightning node)")
-    fmt.Print("    Select [1/2]: ")
-    choice = readLine(reader)
-    if choice == "1" {
-        cfg.components = "bitcoin"
-    } else {
-        cfg.components = "bitcoin+lnd"
-    }
-
-    // Prune size
-    fmt.Println()
-    fmt.Println("  ? Prune size (blockchain storage):")
-    fmt.Println("    1) 10 GB (minimum)")
-    fmt.Println("    2) 25 GB (recommended)")
-    fmt.Println("    3) 50 GB (more history — requires larger SSD)")
-    fmt.Print("    Select [1/2/3]: ")
-    choice = readLine(reader)
-    switch choice {
-    case "1":
-        cfg.pruneSize = 10
-    case "3":
-        cfg.pruneSize = 50
-        fmt.Println("    ⚠️  Make sure your VPS has at least 60 GB of disk space.")
-    default:
-        cfg.pruneSize = 25
-    }
-
-    // P2P mode — only relevant if LND is installed
-    if cfg.components == "bitcoin+lnd" {
-        fmt.Println()
-        fmt.Println("  ? LND P2P exposure:")
-        fmt.Println("    1) Tor only (maximum privacy)")
-        fmt.Println("    2) Hybrid (Tor + clearnet — better routing)")
-        fmt.Print("    Select [1/2]: ")
-        choice = readLine(reader)
-        if choice == "2" {
-            cfg.p2pMode = "hybrid"
-            cfg.publicIPv4 = detectPublicIP()
-            if cfg.publicIPv4 != "" {
-                fmt.Printf("\n    Detected public IPv4: %s\n", cfg.publicIPv4)
-                fmt.Print("    Use this IP? [Y/n]: ")
-                confirm := readLine(reader)
-                if strings.ToLower(confirm) == "n" {
-                    fmt.Print("    Enter IPv4 manually: ")
-                    cfg.publicIPv4 = readLine(reader)
-                }
-            } else {
-                fmt.Print("\n    Could not detect public IP. Enter IPv4: ")
-                cfg.publicIPv4 = readLine(reader)
-            }
-            if cfg.publicIPv4 == "" {
-                fmt.Println("    No IP entered — defaulting to Tor only.")
-                cfg.p2pMode = "tor"
-            }
-        } else {
-            cfg.p2pMode = "tor"
-        }
-    } else {
-        cfg.p2pMode = "tor"
-    }
-
-    // SSH port
-    fmt.Println()
-    fmt.Println("  ? SSH port:")
-    fmt.Println("    1) 22 (default)")
-    fmt.Println("    2) Custom")
-    fmt.Print("    Select [1/2]: ")
-    choice = readLine(reader)
-    if choice == "2" {
-        fmt.Print("    Enter SSH port: ")
-        portStr := readLine(reader)
-        if portStr != "" {
-            fmt.Sscanf(portStr, "%d", &cfg.sshPort)
-        }
-    }
-
-    // Confirmation
-    fmt.Println()
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Println("    Installation Summary")
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Printf("    Network:      %s\n", cfg.network.Name)
-    if cfg.components == "bitcoin+lnd" {
-        fmt.Printf("    Components:   Bitcoin Core %s + LND %s\n", bitcoinVersion, lndVersion)
-    } else {
-        fmt.Printf("    Components:   Bitcoin Core %s\n", bitcoinVersion)
-    }
-    fmt.Printf("    Prune:        %d GB\n", cfg.pruneSize)
-    if cfg.components == "bitcoin+lnd" {
-        if cfg.p2pMode == "hybrid" {
-            fmt.Printf("    P2P mode:     Hybrid (Tor + %s)\n", cfg.publicIPv4)
-        } else {
-            fmt.Println("    P2P mode:     Tor only")
-        }
-    }
-    fmt.Printf("    SSH port:     %d\n", cfg.sshPort)
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Print("\n  ? Proceed with installation? [y/N]: ")
-    confirm := readLine(reader)
-    if strings.ToLower(confirm) != "y" {
-        fmt.Println("\n  Installation cancelled.")
-        os.Exit(0)
-    }
-
-    return cfg
-}
-
-// printComplete shows the post-installation summary.
 func printComplete(cfg *installConfig) {
     fmt.Println()
     fmt.Println("  ═══════════════════════════════════════════")
@@ -338,7 +234,6 @@ func printComplete(cfg *installConfig) {
     fmt.Println("  Bitcoin Core is syncing. This takes a few hours.")
     fmt.Println()
 
-    // Print onion addresses
     btcRPCOnion := readFileOrDefault("/var/lib/tor/bitcoin-rpc/hostname", "")
     btcP2POnion := readFileOrDefault("/var/lib/tor/bitcoin-p2p/hostname", "")
 
@@ -354,7 +249,6 @@ func printComplete(cfg *installConfig) {
     if cfg.components == "bitcoin+lnd" {
         grpcOnion := readFileOrDefault("/var/lib/tor/lnd-grpc/hostname", "")
         restOnion := readFileOrDefault("/var/lib/tor/lnd-rest/hostname", "")
-
         if grpcOnion != "" {
             fmt.Printf("  LND gRPC:      %s:10009\n", strings.TrimSpace(grpcOnion))
         }
@@ -364,18 +258,16 @@ func printComplete(cfg *installConfig) {
     }
 
     fmt.Println()
-    fmt.Println("  Your node is ready. Log out and SSH back in to see")
-    fmt.Println("  the welcome message with useful commands.")
+    fmt.Println("  Log out and SSH back in to see the welcome message")
+    fmt.Println("  with all available commands.")
     fmt.Println()
 }
 
-// readLine reads a single line from the reader and trims whitespace.
 func readLine(reader *bufio.Reader) string {
     line, _ := reader.ReadString('\n')
     return strings.TrimSpace(line)
 }
 
-// readPassword reads a password from stdin with echo disabled.
 func readPassword() string {
     sttyOff := exec.Command("stty", "-echo")
     sttyOff.Stdin = os.Stdin
@@ -391,7 +283,6 @@ func readPassword() string {
     return strings.TrimSpace(password)
 }
 
-// detectPublicIP tries to determine the server's public IPv4.
 func detectPublicIP() string {
     cmd := exec.Command("curl", "-4", "-s", "--max-time", "5", "ifconfig.me")
     output, err := cmd.CombinedOutput()
@@ -406,11 +297,64 @@ func detectPublicIP() string {
     return ip
 }
 
-// readFileOrDefault reads a file or returns a default value.
 func readFileOrDefault(path, def string) string {
     data, err := os.ReadFile(path)
     if err != nil {
         return def
     }
     return string(data)
+}
+
+// setupShellEnvironment configures ripsline's shell so that
+// bitcoin-cli and lncli work without path flags or sudo prefix.
+func setupShellEnvironment(cfg *installConfig) error {
+    networkFlag := ""
+    if cfg.network.Name != "mainnet" {
+        networkFlag = fmt.Sprintf(
+            "\nexport LNCLI_NETWORK=%s", cfg.network.LNCLINetwork,
+        )
+    }
+
+    lndBlock := ""
+    if cfg.components == "bitcoin+lnd" {
+        lndBlock = fmt.Sprintf(`
+# LND — lncli reads these env vars natively
+export LNCLI_LNDDIR=/var/lib/lnd%s
+export LNCLI_MACAROONPATH=/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon
+export LNCLI_TLSCERTPATH=/var/lib/lnd/tls.cert
+`, networkFlag, cfg.network.LNCLINetwork)
+    }
+
+    content := fmt.Sprintf(`
+# ── Virtual Private Node ──────────────────────
+# Added by rlvpn installer
+
+# Bitcoin Core — wrapper so bitcoin-cli just works
+bitcoin-cli() {
+    sudo -u bitcoin /usr/local/bin/bitcoin-cli \
+        -datadir=/var/lib/bitcoin \
+        -conf=/etc/bitcoin/bitcoin.conf \
+        "$@"
+}
+export -f bitcoin-cli
+%s
+# LND — wrapper for sudo
+lncli() {
+    sudo -u bitcoin /usr/local/bin/lncli "$@"
+}
+export -f lncli
+`, lndBlock)
+
+    f, err := os.OpenFile("/home/ripsline/.bashrc",
+        os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+    if err != nil {
+        return fmt.Errorf("open .bashrc: %w", err)
+    }
+    defer f.Close()
+
+    if _, err := f.WriteString(content); err != nil {
+        return fmt.Errorf("write .bashrc: %w", err)
+    }
+
+    return nil
 }

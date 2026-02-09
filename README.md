@@ -20,12 +20,18 @@ All services run as a dedicated `bitcoin` system user under systemd.
 
 - Fresh Debian 12+ VPS
 - Root access
-- Minimum: 1 vCPU, 2 GB RAM, 50 GB SSD
+- 2 vCPU, 4 GB RAM, 90+ GB SSD
 - Go 1.25+
 
-### Building from source
+## Quick Start
 
-### 1. Install Go
+### 1. Install Dependencies
+```bash
+sudo apt update
+sudo apt install git
+```
+
+### 2. Install Go
 ```bash
 cd /tmp
 wget https://go.dev/dl/go1.25.6.linux-amd64.tar.gz
@@ -36,7 +42,7 @@ source ~/.profile
 go version
 ```
 
-### 2. Clone and Build
+### 3. Clone and Build
 
 ```bash
 cd ~

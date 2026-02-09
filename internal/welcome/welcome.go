@@ -1,8 +1,7 @@
-// Package welcome displays the post-install message shown
-// on every SSH login as the ripsline user.
 package welcome
 
 import (
+    "encoding/hex"
     "fmt"
     "os"
     "os/exec"
@@ -20,17 +19,16 @@ func Show(cfg *config.AppConfig, version string) {
     fmt.Println("  ╚══════════════════════════════════════════╝")
     fmt.Println()
 
-    // Show service status (quick check, non-blocking)
     printServiceStatus(cfg)
 
     fmt.Println()
     fmt.Println("  ── Node Commands ──────────────────────────")
     fmt.Println()
-    printBitcoinCommands(cfg)
+    printBitcoinCommands()
 
     if cfg.HasLND() {
         fmt.Println()
-        printLNDCommands(cfg)
+        printLNDCommands()
     }
 
     fmt.Println()
@@ -48,14 +46,27 @@ func Show(cfg *config.AppConfig, version string) {
     }
 
     fmt.Println()
-    fmt.Println("  ── Tor Hidden Services ───────────────────")
+    fmt.Println("  ── Tor Hidden Services ────────────────────")
     fmt.Println()
     printOnionAddresses(cfg)
+
+    if cfg.HasLND() {
+        fmt.Println()
+        fmt.Println("  ── Connect Wallets ────────────────────────")
+        fmt.Println()
+        printZeusInstructions(cfg)
+        fmt.Println()
+        printSparrowInstructions(cfg)
+    } else {
+        fmt.Println()
+        fmt.Println("  ── Connect Sparrow Wallet ─────────────────")
+        fmt.Println()
+        printSparrowInstructions(cfg)
+    }
 
     fmt.Println()
 }
 
-// printServiceStatus shows a quick status line for each service.
 func printServiceStatus(cfg *config.AppConfig) {
     btcStatus := serviceStatus("bitcoind")
     fmt.Printf("    bitcoind:  %s\n", btcStatus)
@@ -69,7 +80,6 @@ func printServiceStatus(cfg *config.AppConfig) {
     fmt.Printf("    tor:       %s\n", torStatus)
 }
 
-// serviceStatus returns a one-word status for a systemd service.
 func serviceStatus(name string) string {
     cmd := exec.Command("systemctl", "is-active", "--quiet", name)
     if cmd.Run() == nil {
@@ -78,45 +88,22 @@ func serviceStatus(name string) string {
     return "✗ stopped"
 }
 
-// printBitcoinCommands prints bitcoin-cli commands with the correct flags.
-func printBitcoinCommands(cfg *config.AppConfig) {
-    fmt.Println("    # Check sync status")
-    fmt.Printf("    bitcoin-cli -datadir=/var/lib/bitcoin -conf=/etc/bitcoin/bitcoin.conf getblockchaininfo\n")
-    fmt.Println()
-    fmt.Println("    # Peer info")
-    fmt.Printf("    bitcoin-cli -datadir=/var/lib/bitcoin -conf=/etc/bitcoin/bitcoin.conf getpeerinfo\n")
-    fmt.Println()
-    fmt.Println("    # Network info")
-    fmt.Printf("    bitcoin-cli -datadir=/var/lib/bitcoin -conf=/etc/bitcoin/bitcoin.conf getnetworkinfo\n")
+func printBitcoinCommands() {
+    fmt.Println("    bitcoin-cli getblockchaininfo")
+    fmt.Println("    bitcoin-cli getpeerinfo")
+    fmt.Println("    bitcoin-cli getnetworkinfo")
 }
 
-// printLNDCommands prints lncli commands with the correct flags.
-func printLNDCommands(cfg *config.AppConfig) {
-    networkFlag := ""
-    if !cfg.IsMainnet() {
-        networkFlag = " --network=" + cfg.Network
-    }
-
-    fmt.Println("    # Node info")
-    fmt.Printf("    lncli --lnddir=/var/lib/lnd%s getinfo\n", networkFlag)
-    fmt.Println()
-    fmt.Println("    # Wallet balance")
-    fmt.Printf("    lncli --lnddir=/var/lib/lnd%s walletbalance\n", networkFlag)
-    fmt.Println()
-    fmt.Println("    # New receiving address")
-    fmt.Printf("    lncli --lnddir=/var/lib/lnd%s newaddress p2wkh\n", networkFlag)
-    fmt.Println()
-    fmt.Println("    # List channels")
-    fmt.Printf("    lncli --lnddir=/var/lib/lnd%s listchannels\n", networkFlag)
-    fmt.Println()
-    fmt.Println("    # Create invoice")
-    fmt.Printf("    lncli --lnddir=/var/lib/lnd%s addinvoice --amt=<sats> --memo=\"<description>\"\n", networkFlag)
-    fmt.Println()
-    fmt.Println("    # Pay invoice")
-    fmt.Printf("    lncli --lnddir=/var/lib/lnd%s payinvoice <bolt11>\n", networkFlag)
+func printLNDCommands() {
+    fmt.Println("    lncli getinfo")
+    fmt.Println("    lncli walletbalance")
+    fmt.Println("    lncli channelbalance")
+    fmt.Println("    lncli newaddress p2wkh")
+    fmt.Println("    lncli listchannels")
+    fmt.Println("    lncli addinvoice --amt=<sats> --memo=\"<memo>\"")
+    fmt.Println("    lncli payinvoice <bolt11>")
 }
 
-// printOnionAddresses reads and displays Tor hidden service addresses.
 func printOnionAddresses(cfg *config.AppConfig) {
     btcRPC := readOnion("/var/lib/tor/bitcoin-rpc/hostname")
     btcP2P := readOnion("/var/lib/tor/bitcoin-p2p/hostname")
@@ -141,7 +128,91 @@ func printOnionAddresses(cfg *config.AppConfig) {
     }
 }
 
-// readOnion reads a Tor hidden service hostname file.
+func printZeusInstructions(cfg *config.AppConfig) {
+    restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
+    if restOnion == "" {
+        fmt.Println("    Zeus: LND REST onion address not available yet.")
+        fmt.Println("    Try again after Tor finishes starting.")
+        return
+    }
+
+    macaroonHex := readMacaroonHex(cfg)
+
+    fmt.Println("    Zeus Wallet (connect over Tor):")
+    fmt.Println("    ─────────────────────────────────────")
+    fmt.Println("    1. Install Zeus on your phone")
+    fmt.Println("    2. Select Advanced Set-Up")
+    fmt.Println("    3. Select Create or connect a wallet")
+    fmt.Println("    4. In Wallet interface drowdown, select LND (REST):")
+    fmt.Println()
+    fmt.Printf("       Server address:     %s\n", restOnion)
+    fmt.Println("      REST Port:     8080")
+
+    if macaroonHex != "" {
+        fmt.Println()
+        fmt.Println("       Macaroon (Hex format):")
+        // Print macaroon in chunks for readability
+        for i := 0; i < len(macaroonHex); i += 76 {
+            end := i + 76
+            if end > len(macaroonHex) {
+                end = len(macaroonHex)
+            }
+            fmt.Printf("       %s\n", macaroonHex[i:end])
+        }
+    } else {
+        fmt.Println()
+        fmt.Println("       Macaroon: not available yet (wallet not created?)")
+        fmt.Println("       After wallet creation, find it with:")
+        fmt.Println("       xxd -ps -c 1000 /var/lib/lnd/data/chain/bitcoin/*/admin.macaroon")
+    }
+}
+
+func printSparrowInstructions(cfg *config.AppConfig) {
+    btcRPC := readOnion("/var/lib/tor/bitcoin-rpc/hostname")
+    if btcRPC == "" {
+        fmt.Println("    Sparrow: Bitcoin RPC onion address not available yet.")
+        fmt.Println("    Try again after Tor finishes starting.")
+        return
+    }
+
+    port := "8332"
+    if !cfg.IsMainnet() {
+        port = "48332"
+    }
+
+    fmt.Println("    Sparrow Wallet (connect over Tor):")
+    fmt.Println("    ─────────────────────────────────────")
+    fmt.Println("    1. In Sparrow: Settings → Server")
+    fmt.Println("    2. Select 'Bitcoin Core' tab")
+    fmt.Println("    3. Enter:")
+    fmt.Println()
+    fmt.Printf("       URL:      http://%s\n", btcRPC)
+    fmt.Printf("       Port:     %s\n", port)
+    fmt.Println("       Auth:     Cookie file (default)")
+    fmt.Println()
+    fmt.Println("    Sparrow has its own Tor proxy running locally.")
+}
+
+// readMacaroonHex reads the admin macaroon and returns it as hex.
+func readMacaroonHex(cfg *config.AppConfig) string {
+    network := cfg.Network
+    if cfg.IsMainnet() {
+        network = "mainnet"
+    }
+
+    path := fmt.Sprintf(
+        "/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon",
+        network,
+    )
+
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return ""
+    }
+
+    return hex.EncodeToString(data)
+}
+
 func readOnion(path string) string {
     data, err := os.ReadFile(path)
     if err != nil {

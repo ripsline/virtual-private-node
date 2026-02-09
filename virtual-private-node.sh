@@ -41,7 +41,7 @@ if id "$ADMIN_USER" &>/dev/null; then
     echo "  User $ADMIN_USER already exists, skipping."
     PASSWORD="(unchanged)"
 else
-    PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
+    PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
     adduser --disabled-password --gecos "Virtual Private Node" "$ADMIN_USER"
     echo "$ADMIN_USER:$PASSWORD" | chpasswd
     echo "  ✓ Created user $ADMIN_USER"
