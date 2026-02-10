@@ -13,34 +13,35 @@ import (
 var (
     titleStyle = lipgloss.NewStyle().
             Bold(true).
-            Foreground(lipgloss.Color("15")).
-            Background(lipgloss.Color("62")).
+            Foreground(lipgloss.Color("0")).
+            Background(lipgloss.Color("15")).
             Padding(0, 2)
 
     sectionStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("39")).
+            Foreground(lipgloss.Color("15")).
             Bold(true)
 
     selectedStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("212")).
+            Foreground(lipgloss.Color("15")).
             Bold(true)
 
     unselectedStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("252"))
+            Foreground(lipgloss.Color("250"))
 
     dimStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("243"))
 
     warningStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("214"))
+            Foreground(lipgloss.Color("245")).
+            Italic(true)
 
     boxStyle = lipgloss.NewStyle().
             Border(lipgloss.RoundedBorder()).
-            BorderForeground(lipgloss.Color("62")).
+            BorderForeground(lipgloss.Color("245")).
             Padding(1, 2)
 
     summaryKeyStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("243")).
+            Foreground(lipgloss.Color("245")).
             Width(16).
             Align(lipgloss.Right)
 

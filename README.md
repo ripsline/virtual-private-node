@@ -1,60 +1,102 @@
 ## Virtual Private Node
 
-A single binary that installs and configures a Bitcoin node on a
-fresh Debian 12 VPS. Supports Bitcoin Core with optional Lightning
-Network (LND), all routed through Tor.
+A one-command installer for private Bitcoin and Lightning nodes on
+Debian — Bitcoin Core, LND, and Tor, configured and running in minutes.
 
-After installation, you manage your node with standard tools:
-`bitcoin-cli`, `lncli`, `systemctl`, and `journalctl`. No wrappers,
-no abstractions.
+After installation, manage your node with `bitcoin-cli`, `lncli`,
+and `systemctl`. No wrappers, no abstractions.
 
 ### What it installs
 
-- **Tor** — all connections routed through Tor SOCKS proxy
-- **Bitcoin Core 29.2** — pruned, configurable storage (10/25/50 GB)
-- **LND 0.20.0-beta** (optional) — Lightning Network with Tor hidden services
-
-All services run as a dedicated `bitcoin` system user under systemd.
+- **Tor** — all connections routed through Tor
+- **Bitcoin Core 29.2** — pruned, configurable (10/25/50 GB)
+- **LND 0.20.0-beta** (optional) — Lightning with Tor hidden services
 
 ### Requirements
 
-- Fresh Debian 12+ VPS
+- Fresh Debian 12+ Server
 - Root access
 - 2 vCPU, 4 GB RAM, 90+ GB SSD
-- Go 1.25+
 
-## Quick Start
+### Quick Start
 
-### 1. Install Dependencies
-```bash
+SSH into your VPS as root and run:
+
+~~~
+curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash
+~~~
+
+This creates a `ripsline` user and downloads the `rlvpn` binary.
+Follow the on-screen instructions to SSH in as `ripsline` — the
+node installer starts automatically.
+
+### Build from Source
+
+#### 1. Install Dependencies
+
+~~~bash
 sudo apt update
-sudo apt install git
-```
+sudo apt install -y git wget
+~~~
 
-### 2. Install Go
-```bash
+#### 2. Install Go
+
+~~~bash
 cd /tmp
-wget https://go.dev/dl/go1.25.6.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.22.5.linux-amd64.tar.gz
 sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.25.6.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
 source ~/.profile
 go version
-```
+~~~
 
-### 3. Clone and Build
+#### 3. Clone and Build
 
-```bash
+~~~bash
 cd ~
 git clone https://github.com/ripsline/virtual-private-node.git
 cd virtual-private-node
 go mod tidy
 go build -o rlvpn ./cmd/
-```
+~~~
 
-This creates a `ripsline` user, downloads the `rlvpn` binary, and
-prints SSH instructions. Open a new terminal, SSH in as `ripsline`,
-and the interactive installer starts automatically.
+#### 4. Manual Bootstrap
+
+Run these commands as root to set up the `ripsline` user and
+install the binary:
+
+~~~bash
+# Create ripsline user
+adduser --disabled-password --gecos "Virtual Private Node" ripsline
+PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
+echo "ripsline:$PASSWORD" | chpasswd
+echo "Password for ripsline: $PASSWORD"
+
+# Passwordless sudo
+echo "ripsline ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ripsline
+chmod 440 /etc/sudoers.d/ripsline
+
+# Install the binary
+cp ./rlvpn /usr/local/bin/rlvpn
+chmod 755 /usr/local/bin/rlvpn
+
+# Auto-launch on ripsline login
+cat > /home/ripsline/.bash_profile << 'EOF'
+if [ -n "$SSH_CONNECTION" ] && [ -t 0 ]; then
+    sudo /usr/local/bin/rlvpn
+fi
+EOF
+chown ripsline:ripsline /home/ripsline/.bash_profile
+~~~
+
+Save the printed password, then open a new terminal and connect:
+
+~~~bash
+ssh ripsline@YOUR_SERVER_IP
+~~~
+
+The installer starts automatically.
 
 ### What the installer asks
 
@@ -65,52 +107,66 @@ and the interactive installer starts automatically.
 | Prune size | 10 GB, 25 GB, or 50 GB |
 | LND P2P mode | Tor only or Hybrid (Tor + clearnet) |
 | SSH port | 22 or custom |
-| LND wallet | Password + seed (via `lncli create`) |
+| LND wallet | Created via `lncli create` |
 | Auto-unlock | Store password for unattended restarts |
 
 ### Post-install
 
-After installation, every SSH login as `ripsline` shows a welcome
-message with your node status, useful commands, and Tor onion
-addresses.
+Every SSH login as `ripsline` opens a dashboard showing node
+health, service status, and system resources. Use the tabs
+to view logs or get wallet pairing details for Zeus and Sparrow.
 
-You manage your node with the standard tools:
-```bash
-#Bitcoin Core
+Press `q` to drop to a shell. Manage your node directly:
 
-bitcoin-cli -datadir=/var/lib/bitcoin -conf=/etc/bitcoin/bitcoin.conf getblockchaininfo
-```
-```bash
-#LND (testnet4)
+~~~bash
+# Bitcoin Core
+bitcoin-cli getblockchaininfo
+bitcoin-cli getpeerinfo
 
-lncli --lnddir=/var/lib/lnd --network=testnet4 getinfo
-lncli --lnddir=/var/lib/lnd --network=testnet4 walletbalance
-lncli --lnddir=/var/lib/lnd --network=testnet4 newaddress p2wkh
-```
-```bash
-#LND (mainnet)
+# LND
+lncli getinfo
+lncli walletbalance
+lncli newaddress p2wkh
+lncli addinvoice --amt=1000 --memo="test"
+lncli listchannels
 
-lncli --lnddir=/var/lib/lnd getinfo
-```
-```bash
-#Services
-
+# Services
 sudo systemctl status bitcoind
 sudo systemctl status lnd
+sudo systemctl status tor@default
 sudo journalctl -u lnd -f
-```
+~~~
+
+### Connecting wallets
+
+#### Zeus (Lightning — LND REST over Tor)
+
+1. Download & Verify Zeus Mobile
+2. Advanced Set-Up
+3. Create or connect a wallet
+4. Wallet interface dropdown → LND(REST)
+5. Paste the Server address, REST Port, and Macaroon
+
+#### Sparrow (On-chain — Bitcoin Core RPC over Tor)
+
+1. Open the **Pairing** tab for your RPC URL, port, and credentials
+2. In Sparrow Wallet: Sparrow → Settings → Server → Bitcoin Core
+3. Enter the URL, port, username, and password
+4. Test Connection
 
 ### Architecture
-User SSH → ripsline@VPS
-│
-└── rlvpn (first login: installer, subsequent: welcome message)
+
+~~~
+User SSH → ripsline@VPS → rlvpn (dashboard)
+                             press q → shell with bitcoin-cli, lncli
 
 Services (systemd, run as bitcoin user):
-tor.service → SOCKS proxy (9050), control port (9051)
-bitcoind.service → pruned node, Tor-routed
-lnd.service → Lightning, Tor hidden services for gRPC/REST
+  tor.service      → SOCKS proxy (9050), control port (9051)
+  bitcoind.service → pruned node, Tor-routed
+  lnd.service      → Lightning, Tor hidden services
+~~~
 
-### Directory layout (FHS-compliant)
+### Directory layout
 
 | Path | Contents |
 |---|---|

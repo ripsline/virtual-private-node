@@ -159,7 +159,7 @@ func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
     fmt.Println("  LND will ask you to:")
     fmt.Println("    1. Enter a wallet password (min 8 characters)")
     fmt.Println("    2. Confirm the password")
-	fmt.Println("    3. 'n' to create a new seed")
+    fmt.Println("    3. 'n' to create a new seed")
     fmt.Println("    4. Optionally set a cipher seed passphrase")
     fmt.Println("       (press Enter to skip)")
     fmt.Println("    5. Write down your 24-word seed phrase")
