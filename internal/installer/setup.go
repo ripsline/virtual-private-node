@@ -7,6 +7,8 @@ import (
     "os/exec"
     "strings"
 
+    tea "github.com/charmbracelet/bubbletea"
+    "github.com/charmbracelet/lipgloss"
     "github.com/ripsline/virtual-private-node/internal/config"
 )
 
@@ -27,12 +29,15 @@ type installConfig struct {
 }
 
 // NeedsInstall returns true if the node has not been set up yet.
+// Checks for the config file written at the end of installation.
 func NeedsInstall() bool {
     _, err := os.Stat("/etc/rlvpn/config.json")
     return err != nil
 }
 
-// Run is the main installation entry point.
+// Run is the main installation entry point. It gathers config
+// from the TUI, installs all components, creates the wallet,
+// and launches the welcome TUI.
 func Run() error {
     if err := checkOS(); err != nil {
         return err
@@ -46,28 +51,6 @@ func Run() error {
     if cfg == nil {
         fmt.Println("\n  Installation cancelled.")
         return nil
-    }
-
-    // If hybrid mode, we need the public IP
-    if cfg.p2pMode == "hybrid" {
-        reader := bufio.NewReader(os.Stdin)
-        cfg.publicIPv4 = detectPublicIP()
-        if cfg.publicIPv4 != "" {
-            fmt.Printf("\n  Detected public IPv4: %s\n", cfg.publicIPv4)
-            fmt.Print("  Use this IP? [Y/n]: ")
-            confirm := readLine(reader)
-            if strings.ToLower(confirm) == "n" {
-                fmt.Print("  Enter IPv4 manually: ")
-                cfg.publicIPv4 = readLine(reader)
-            }
-        } else {
-            fmt.Print("\n  Could not detect public IP. Enter IPv4: ")
-            cfg.publicIPv4 = readLine(reader)
-        }
-        if cfg.publicIPv4 == "" {
-            fmt.Println("  No IP entered — defaulting to Tor only.")
-            cfg.p2pMode = "tor"
-        }
     }
 
     // Build and run installation steps
@@ -84,14 +67,16 @@ func Run() error {
     }
 
     // LND wallet creation — separate interactive phase
+    // Shown in a centered TUI box to distinguish it from
+    // the automated install steps above.
     if cfg.components == "bitcoin+lnd" {
-        reader := bufio.NewReader(os.Stdin)
-        if err := walletCreationPhase(cfg, reader); err != nil {
+        if err := walletCreationPhase(cfg); err != nil {
             return err
         }
     }
 
-    // Configure shell environment
+    // Configure shell environment so bitcoin-cli and lncli
+    // work without long flags for the ripsline user
     fmt.Println("\n  Configuring shell environment...")
     if err := setupShellEnvironment(cfg); err != nil {
         fmt.Printf("  Warning: shell setup failed: %v\n", err)
@@ -99,7 +84,8 @@ func Run() error {
         fmt.Println("  ✓ Shell environment configured")
     }
 
-    // Save persistent config
+    // Save persistent config — this file's existence is what
+    // NeedsInstall() checks on subsequent logins
     appCfg := &config.AppConfig{
         Network:    cfg.network.Name,
         Components: cfg.components,
@@ -111,15 +97,27 @@ func Run() error {
         return fmt.Errorf("save config: %w", err)
     }
 
-    printComplete(cfg)
+    // Show brief completion message then launch welcome TUI
+    fmt.Println()
+    fmt.Println("  ═══════════════════════════════════════════")
+    fmt.Println("    Installation Complete!")
+    fmt.Println("  ═══════════════════════════════════════════")
+    fmt.Println()
+    fmt.Println("  Bitcoin Core is syncing. This takes a few hours.")
+    fmt.Println("  Launching dashboard...")
+    fmt.Println()
+
     return nil
 }
 
+// step is a named installation step with a function to execute.
 type step struct {
     name string
     fn   func() error
 }
 
+// buildSteps returns the ordered list of installation steps
+// based on the user's component choices.
 func buildSteps(cfg *installConfig) []step {
     steps := []step{
         {"Creating system user", func() error { return createSystemUser(systemUser) }},
@@ -148,28 +146,102 @@ func buildSteps(cfg *installConfig) []step {
     return steps
 }
 
-func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
-    fmt.Println()
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Println()
-    fmt.Println("  Automated setup complete.")
-    fmt.Println()
-    fmt.Println("  Next: Create your LND wallet.")
-    fmt.Println()
-    fmt.Println("  LND will ask you to:")
-    fmt.Println("    1. Enter a wallet password (min 8 characters)")
-    fmt.Println("    2. Confirm the password")
-    fmt.Println("    3. 'n' to create a new seed")
-    fmt.Println("    4. Optionally set a cipher seed passphrase")
-    fmt.Println("       (press Enter to skip)")
-    fmt.Println("    5. Write down your 24-word seed phrase")
-    fmt.Println()
-    fmt.Println("  ⚠️  Your seed phrase is the ONLY way to recover funds.")
-    fmt.Println("  ⚠️  No one can help you if you lose it.")
-    fmt.Println()
-    fmt.Print("  Press Enter to continue...")
-    reader.ReadString('\n')
+// ── Centered TUI box ─────────────────────────────────────
+//
+// Used for wallet creation and auto-unlock prompts.
+// Creates a mini bubbletea program that shows a centered
+// bordered box with a message and waits for Enter.
 
+// boxStyle for the centered information boxes
+var setupBoxStyle = lipgloss.NewStyle().
+    Border(lipgloss.RoundedBorder()).
+    BorderForeground(lipgloss.Color("245")).
+    Padding(1, 3)
+
+var setupTitleStyle = lipgloss.NewStyle().
+    Foreground(lipgloss.Color("15")).
+    Bold(true)
+
+var setupTextStyle = lipgloss.NewStyle().
+    Foreground(lipgloss.Color("250"))
+
+var setupWarnStyle = lipgloss.NewStyle().
+    Foreground(lipgloss.Color("15")).
+    Bold(true)
+
+var setupDimStyle = lipgloss.NewStyle().
+    Foreground(lipgloss.Color("243"))
+
+// infoBoxModel is a minimal bubbletea model that shows a
+// centered box and waits for Enter.
+type infoBoxModel struct {
+    content string
+    width   int
+    height  int
+    done    bool
+}
+
+func (m infoBoxModel) Init() tea.Cmd { return nil }
+
+func (m infoBoxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    case tea.KeyMsg:
+        if msg.String() == "enter" || msg.String() == "ctrl+c" {
+            m.done = true
+            return m, tea.Quit
+        }
+    }
+    return m, nil
+}
+
+func (m infoBoxModel) View() string {
+    if m.width == 0 {
+        return "Loading..."
+    }
+
+    maxWidth := m.width - 8
+    if maxWidth > 70 {
+        maxWidth = 70
+    }
+
+    box := setupBoxStyle.Width(maxWidth).Render(m.content)
+
+    return lipgloss.Place(m.width, m.height,
+        lipgloss.Center, lipgloss.Center,
+        box,
+    )
+}
+
+// showInfoBox displays a centered box with content and waits for Enter.
+func showInfoBox(content string) {
+    m := infoBoxModel{content: content}
+    p := tea.NewProgram(m, tea.WithAltScreen())
+    p.Run()
+}
+
+// walletCreationPhase handles the interactive wallet creation.
+// Shows centered TUI boxes before and after handing control
+// to lncli create.
+func walletCreationPhase(cfg *installConfig) error {
+    // Show info box explaining what's about to happen
+    walletInfo := setupTitleStyle.Render("Create Your LND Wallet") + "\n\n" +
+        setupTextStyle.Render("LND will ask you to:") + "\n\n" +
+        setupTextStyle.Render("  1. Enter a wallet password (min 8 characters)") + "\n" +
+        setupTextStyle.Render("  2. Confirm the password") + "\n" +
+        setupTextStyle.Render("  3. 'n' to create a new seed") + "\n" +
+        setupTextStyle.Render("  4. Optionally set a cipher seed passphrase") + "\n" +
+        setupTextStyle.Render("     (press Enter to skip)") + "\n" +
+        setupTextStyle.Render("  5. Write down your 24-word seed phrase") + "\n\n" +
+        setupWarnStyle.Render("⚠️  Your seed phrase is the ONLY way to recover funds.") + "\n" +
+        setupWarnStyle.Render("⚠️  No one can help you if you lose it.") + "\n\n" +
+        setupDimStyle.Render("Press Enter to continue...")
+
+    showInfoBox(walletInfo)
+
+    // Wait for LND REST to be ready
     fmt.Println()
     fmt.Println("  Waiting for LND to be ready...")
     if err := waitForLND(); err != nil {
@@ -178,7 +250,8 @@ func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
     fmt.Println("  ✓ LND is ready")
     fmt.Println()
 
-    // Hand terminal to lncli create
+    // Hand terminal to lncli create — this is LND's native
+    // interactive wallet creation. We don't customize it.
     lncliArgs := []string{
         "-u", systemUser, "lncli",
         "--lnddir=/var/lib/lnd",
@@ -194,80 +267,46 @@ func walletCreationPhase(cfg *installConfig, reader *bufio.Reader) error {
         return fmt.Errorf("lncli create failed: %w", err)
     }
 
-    fmt.Println()
-    fmt.Println("  ✓ Wallet created")
+    // Show auto-unlock box — we default to yes, just need the password
+    unlockInfo := setupTitleStyle.Render("Auto-Unlock Configuration") + "\n\n" +
+        setupTextStyle.Render("Your wallet password will be stored on disk so LND") + "\n" +
+        setupTextStyle.Render("can start automatically after a server reboot.") + "\n\n" +
+        setupTextStyle.Render("Without auto-unlock, you would need to SSH in and") + "\n" +
+        setupTextStyle.Render("manually unlock the wallet after every restart.") + "\n\n" +
+        setupDimStyle.Render("Press Enter to continue...")
 
-    // Auto-unlock option
-    fmt.Println()
-    fmt.Println("  ? Auto-unlock LND wallet on reboot?")
-    fmt.Println("    This stores your wallet password on disk so LND")
-    fmt.Println("    can start without manual intervention after reboot.")
-    fmt.Println()
-    fmt.Println("    1) Yes (recommended for always-on nodes)")
-    fmt.Println("    2) No (you must unlock manually after every restart)")
-    fmt.Print("    Select [1/2]: ")
-    choice := readLine(reader)
+    showInfoBox(unlockInfo)
 
-    if choice != "2" {
-        fmt.Println()
-        fmt.Print("  ? Re-enter your wallet password for auto-unlock: ")
-        password := readPassword()
-        fmt.Println()
+    // Prompt for password (outside of bubbletea, raw terminal)
+    fmt.Println()
+    fmt.Print("  Re-enter your wallet password for auto-unlock: ")
+    password := readPassword()
+    fmt.Println()
 
-        if err := setupAutoUnlock(password); err != nil {
-            fmt.Printf("  Warning: auto-unlock setup failed: %v\n", err)
-            fmt.Println("  You can set this up manually later.")
-        } else {
-            fmt.Println("  ✓ Auto-unlock configured")
-        }
+    if password == "" {
+        fmt.Println("  No password entered. Skipping auto-unlock.")
+        fmt.Println("  You can set this up later by creating /var/lib/lnd/wallet_password")
+        return nil
+    }
+
+    if err := setupAutoUnlock(password); err != nil {
+        fmt.Printf("  Warning: auto-unlock setup failed: %v\n", err)
+        fmt.Println("  You can set this up manually later.")
+    } else {
+        fmt.Println("  ✓ Auto-unlock configured")
     }
 
     return nil
 }
 
-func printComplete(cfg *installConfig) {
-    fmt.Println()
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Println("    Installation Complete!")
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Println()
-    fmt.Println("  Bitcoin Core is syncing. This takes a few hours.")
-    fmt.Println()
-
-    btcRPCOnion := readFileOrDefault("/var/lib/tor/bitcoin-rpc/hostname", "")
-    btcP2POnion := readFileOrDefault("/var/lib/tor/bitcoin-p2p/hostname", "")
-
-    if btcP2POnion != "" {
-        fmt.Printf("  Bitcoin P2P:   %s:%d\n",
-            strings.TrimSpace(btcP2POnion), cfg.network.P2PPort)
-    }
-    if btcRPCOnion != "" {
-        fmt.Printf("  Bitcoin RPC:   %s:%d\n",
-            strings.TrimSpace(btcRPCOnion), cfg.network.RPCPort)
-    }
-
-    if cfg.components == "bitcoin+lnd" {
-        grpcOnion := readFileOrDefault("/var/lib/tor/lnd-grpc/hostname", "")
-        restOnion := readFileOrDefault("/var/lib/tor/lnd-rest/hostname", "")
-        if grpcOnion != "" {
-            fmt.Printf("  LND gRPC:      %s:10009\n", strings.TrimSpace(grpcOnion))
-        }
-        if restOnion != "" {
-            fmt.Printf("  LND REST:      %s:8080\n", strings.TrimSpace(restOnion))
-        }
-    }
-
-    fmt.Println()
-    fmt.Println("  Log out and SSH back in to see the welcome message")
-    fmt.Println("  with all available commands.")
-    fmt.Println()
-}
-
+// readLine reads a single line from the reader and trims whitespace.
 func readLine(reader *bufio.Reader) string {
     line, _ := reader.ReadString('\n')
     return strings.TrimSpace(line)
 }
 
+// readPassword reads a password from stdin with echo disabled
+// so the password is not visible as the user types.
 func readPassword() string {
     sttyOff := exec.Command("stty", "-echo")
     sttyOff.Stdin = os.Stdin
@@ -283,6 +322,8 @@ func readPassword() string {
     return strings.TrimSpace(password)
 }
 
+// detectPublicIP tries to determine the server's public IPv4
+// address. Returns empty string if detection fails.
 func detectPublicIP() string {
     cmd := exec.Command("curl", "-4", "-s", "--max-time", "5", "ifconfig.me")
     output, err := cmd.CombinedOutput()
@@ -297,6 +338,8 @@ func detectPublicIP() string {
     return ip
 }
 
+// readFileOrDefault reads a file or returns a default value if
+// the file doesn't exist or can't be read.
 func readFileOrDefault(path, def string) string {
     data, err := os.ReadFile(path)
     if err != nil {
@@ -306,7 +349,9 @@ func readFileOrDefault(path, def string) string {
 }
 
 // setupShellEnvironment configures ripsline's shell so that
-// bitcoin-cli and lncli work without path flags or sudo prefix.
+// bitcoin-cli and lncli work without long path flags or sudo.
+// Uses bash functions that wrap the real binaries with the
+// correct flags. lncli also gets env vars it reads natively.
 func setupShellEnvironment(cfg *installConfig) error {
     networkFlag := ""
     if cfg.network.Name != "mainnet" {
@@ -327,7 +372,7 @@ export LNCLI_TLSCERTPATH=/var/lib/lnd/tls.cert
 
     content := fmt.Sprintf(`
 # ── Virtual Private Node ──────────────────────
-# Added by rlvpn installer
+# Added by rlvpn installer. Do not edit above this line.
 
 # Bitcoin Core — wrapper so bitcoin-cli just works
 bitcoin-cli() {
@@ -345,6 +390,7 @@ lncli() {
 export -f lncli
 `, lndBlock)
 
+    // Append to ripsline's .bashrc so it loads on every shell session
     f, err := os.OpenFile("/home/ripsline/.bashrc",
         os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
     if err != nil {

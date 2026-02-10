@@ -1,3 +1,9 @@
+// Package installer — tui.go
+//
+// Interactive TUI for gathering installation configuration.
+// Uses bubbletea for terminal UI with arrow key navigation
+// and lipgloss for styling. Matches the welcome TUI's
+// black/white brand aesthetic.
 package installer
 
 import (
@@ -8,49 +14,62 @@ import (
     "github.com/charmbracelet/lipgloss"
 )
 
-// ── Styles ───────────────────────────────────────────────
+// ── Styles (black and white brand, matching welcome TUI) ─
 
 var (
-    titleStyle = lipgloss.NewStyle().
+    // Title bar — black text on white background
+    tuiTitleStyle = lipgloss.NewStyle().
             Bold(true).
             Foreground(lipgloss.Color("0")).
             Background(lipgloss.Color("15")).
             Padding(0, 2)
 
-    sectionStyle = lipgloss.NewStyle().
+    // Section headers
+    tuiSectionStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("15")).
             Bold(true)
 
-    selectedStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("15")).
-            Bold(true)
+    // Selected option — white bold
+    tuiSelectedStyle = lipgloss.NewStyle().
+                Foreground(lipgloss.Color("15")).
+                Bold(true)
 
-    unselectedStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("250"))
+    // Unselected option — light gray
+    tuiUnselectedStyle = lipgloss.NewStyle().
+                Foreground(lipgloss.Color("250"))
 
-    dimStyle = lipgloss.NewStyle().
+    // De-emphasized text
+    tuiDimStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("243"))
 
-    warningStyle = lipgloss.NewStyle().
+    // Warning text for options (e.g. "needs larger SSD")
+    tuiWarningStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("245")).
             Italic(true)
 
-    boxStyle = lipgloss.NewStyle().
+    // Summary box border
+    tuiBoxStyle = lipgloss.NewStyle().
             Border(lipgloss.RoundedBorder()).
             BorderForeground(lipgloss.Color("245")).
             Padding(1, 2)
 
-    summaryKeyStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("245")).
-            Width(16).
-            Align(lipgloss.Right)
+    // Summary key (left side, right-aligned)
+    tuiSummaryKeyStyle = lipgloss.NewStyle().
+                Foreground(lipgloss.Color("245")).
+                Width(16).
+                Align(lipgloss.Right)
 
-    summaryValStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("15")).
-            Bold(true)
+    // Summary value (right side, bold white)
+    tuiSummaryValStyle = lipgloss.NewStyle().
+                Foreground(lipgloss.Color("15")).
+                Bold(true)
 )
 
 // ── Questions ────────────────────────────────────────────
+//
+// Each question has a title and a list of options. Options
+// have a label (shown to user), description, value (stored
+// in config), and optional warning text.
 
 type question struct {
     title   string
@@ -61,9 +80,10 @@ type option struct {
     label string
     desc  string
     value string
-    warn  string // optional warning shown when selected
+    warn  string // shown when this option is highlighted
 }
 
+// buildQuestions returns the base set of questions shown to every user.
 func buildQuestions() []question {
     return []question{
         {
@@ -101,7 +121,7 @@ func buildQuestions() []question {
             options: []option{
                 {
                     label: "10 GB",
-                    desc:  "Minimum",
+                    desc:  "Minimum — works but tight",
                     value: "10",
                 },
                 {
@@ -113,14 +133,14 @@ func buildQuestions() []question {
                     label: "50 GB",
                     desc:  "More block history",
                     value: "50",
-                    warn:  "Make sure your SSD is at least 100 GB",
+                    warn:  "Make sure your VPS has at least 60 GB of disk space",
                 },
             },
         },
     }
 }
 
-// P2P question is only shown if LND is selected.
+// p2pQuestion is only shown when LND is selected as a component.
 func p2pQuestion() question {
     return question{
         title: "LND P2P Mode",
@@ -139,7 +159,7 @@ func p2pQuestion() question {
     }
 }
 
-// SSH question
+// sshQuestion asks which SSH port to use.
 func sshQuestion() question {
     return question{
         title: "SSH Port",
@@ -172,13 +192,14 @@ const (
 type tuiModel struct {
     questions []question
     current   int
-    cursors   []int // selected option index per question
-    answers   []string
+    cursors   []int    // selected option index per question
+    answers   []string // stored value per question
     phase     tuiPhase
     width     int
     height    int
 }
 
+// tuiResult holds the parsed answers from the TUI.
 type tuiResult struct {
     network    string
     components string
@@ -189,7 +210,6 @@ type tuiResult struct {
 
 func newTuiModel() tuiModel {
     questions := buildQuestions()
-    // Add SSH question
     questions = append(questions, sshQuestion())
 
     return tuiModel{
@@ -222,6 +242,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 return m, tea.Quit
             }
 
+        // Navigate options up
         case "up", "k":
             if m.phase == phaseQuestions {
                 if m.cursors[m.current] > 0 {
@@ -229,17 +250,20 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 }
             }
 
+        // Navigate options down
         case "down", "j":
             if m.phase == phaseQuestions {
-                max := len(m.questions[m.current].options) - 1
-                if m.cursors[m.current] < max {
+                maxIdx := len(m.questions[m.current].options) - 1
+                if m.cursors[m.current] < maxIdx {
                     m.cursors[m.current]++
                 }
             }
 
+        // Select option or confirm summary
         case "enter":
             return m.handleEnter()
 
+        // Go back to previous question
         case "backspace", "left", "h":
             if m.phase == phaseQuestions && m.current > 0 {
                 m.current--
@@ -253,6 +277,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     return m, nil
 }
 
+// handleEnter processes the Enter key — saves the current answer
+// and advances to the next question or summary.
 func (m tuiModel) handleEnter() (tea.Model, tea.Cmd) {
     if m.phase == phaseSummary {
         m.phase = phaseConfirmed
@@ -263,17 +289,17 @@ func (m tuiModel) handleEnter() (tea.Model, tea.Cmd) {
         return m, nil
     }
 
-    // Save the answer
+    // Save the selected answer
     q := m.questions[m.current]
     selected := q.options[m.cursors[m.current]]
     m.answers[m.current] = selected.value
 
-    // After components question, inject or remove P2P question
+    // After components question, dynamically add/remove P2P question
     if m.current == 1 {
         m = m.handleComponentChoice()
     }
 
-    // Move to next question or summary
+    // Advance to next question or show summary
     if m.current < len(m.questions)-1 {
         m.current++
     } else {
@@ -283,8 +309,8 @@ func (m tuiModel) handleEnter() (tea.Model, tea.Cmd) {
     return m, nil
 }
 
-// handleComponentChoice adds or removes the P2P question based
-// on whether LND was selected.
+// handleComponentChoice adds the P2P question when LND is selected
+// and removes it when Bitcoin-only is selected.
 func (m tuiModel) handleComponentChoice() tuiModel {
     hasP2P := false
     for _, q := range m.questions {
@@ -325,12 +351,18 @@ func (m tuiModel) handleComponentChoice() tuiModel {
     return m
 }
 
+// View renders the install TUI. Returns a loading screen if
+// the terminal size hasn't been reported yet.
 func (m tuiModel) View() string {
+    // Wait for terminal size before rendering
+    if m.width == 0 || m.height == 0 {
+        return "Loading..."
+    }
+
     var b strings.Builder
 
     // Title
-    b.WriteString("\n")
-    b.WriteString("  " + titleStyle.Render(" Virtual Private Node "))
+    b.WriteString(tuiTitleStyle.Render(" Virtual Private Node "))
     b.WriteString("\n\n")
 
     switch m.phase {
@@ -340,26 +372,30 @@ func (m tuiModel) View() string {
         b.WriteString(m.renderSummary())
     }
 
-    // Footer
+    // Footer with keyboard hints
     b.WriteString("\n")
     if m.phase == phaseQuestions {
-        footer := dimStyle.Render("  ↑↓ navigate • enter select • backspace back • ctrl+c quit")
-        b.WriteString(footer)
+        b.WriteString(tuiDimStyle.Render("↑↓ navigate • enter select • backspace back • ctrl+c quit"))
     } else if m.phase == phaseSummary {
-        footer := dimStyle.Render("  enter confirm • backspace edit • q cancel")
-        b.WriteString(footer)
+        b.WriteString(tuiDimStyle.Render("enter confirm • backspace edit • q cancel"))
     }
-    b.WriteString("\n")
 
-    return b.String()
+    content := b.String()
+
+    // Center everything in the terminal
+    return lipgloss.Place(m.width, m.height,
+        lipgloss.Center, lipgloss.Center,
+        content,
+    )
 }
 
+// renderQuestion shows the current question with selectable options.
 func (m tuiModel) renderQuestion() string {
     var b strings.Builder
 
     // Progress indicator
-    progress := dimStyle.Render(fmt.Sprintf(
-        "  Question %d of %d", m.current+1, len(m.questions),
+    progress := tuiDimStyle.Render(fmt.Sprintf(
+        "Question %d of %d", m.current+1, len(m.questions),
     ))
     b.WriteString(progress)
     b.WriteString("\n\n")
@@ -367,49 +403,50 @@ func (m tuiModel) renderQuestion() string {
     q := m.questions[m.current]
 
     // Question title
-    b.WriteString("  " + sectionStyle.Render(q.title))
+    b.WriteString(tuiSectionStyle.Render(q.title))
     b.WriteString("\n\n")
 
-    // Options
+    // Options with cursor indicator
     for i, opt := range q.options {
         cursor := "  "
-        style := unselectedStyle
+        style := tuiUnselectedStyle
         if i == m.cursors[m.current] {
             cursor = "▸ "
-            style = selectedStyle
+            style = tuiSelectedStyle
         }
 
         label := style.Render(cursor + opt.label)
-        desc := dimStyle.Render(" — " + opt.desc)
-        b.WriteString("  " + label + desc)
+        desc := tuiDimStyle.Render(" — " + opt.desc)
+        b.WriteString(label + desc)
         b.WriteString("\n")
 
-        // Show warning if this option is selected
+        // Show warning if this option is currently highlighted
         if i == m.cursors[m.current] && opt.warn != "" {
-            b.WriteString("    " + warningStyle.Render("⚠️  "+opt.warn))
+            b.WriteString("  " + tuiWarningStyle.Render("⚠️  "+opt.warn))
             b.WriteString("\n")
         }
     }
 
-    // Show previous answers
+    // Show previously answered questions below the current one
     if m.current > 0 {
         b.WriteString("\n")
-        b.WriteString("  " + dimStyle.Render("─────────────────────────────"))
+        b.WriteString(tuiDimStyle.Render("─────────────────────────────"))
         b.WriteString("\n")
         for i := 0; i < m.current; i++ {
-            key := dimStyle.Render(fmt.Sprintf("  %s:", m.questions[i].title))
+            key := tuiDimStyle.Render(fmt.Sprintf("%s:", m.questions[i].title))
             val := m.answers[i]
-            b.WriteString(fmt.Sprintf("  %s %s\n", key, val))
+            b.WriteString(fmt.Sprintf("%s %s\n", key, val))
         }
     }
 
     return b.String()
 }
 
+// renderSummary shows all selected options in a bordered box.
 func (m tuiModel) renderSummary() string {
     var b strings.Builder
 
-    b.WriteString("  " + sectionStyle.Render("Installation Summary"))
+    b.WriteString(tuiSectionStyle.Render("Installation Summary"))
     b.WriteString("\n\n")
 
     result := m.getResult()
@@ -424,6 +461,7 @@ func (m tuiModel) renderSummary() string {
         {"SSH Port", result.sshPort},
     }
 
+    // Insert P2P mode row if LND is selected
     if result.components == "bitcoin+lnd" {
         mode := "Tor only"
         if result.p2pMode == "hybrid" {
@@ -437,23 +475,24 @@ func (m tuiModel) renderSummary() string {
         )
     }
 
-    // Build the summary box content
+    // Build the summary content inside a bordered box
     var content strings.Builder
     for _, row := range rows {
-        key := summaryKeyStyle.Render(row.key + ":")
-        val := summaryValStyle.Render(" " + row.val)
+        key := tuiSummaryKeyStyle.Render(row.key + ":")
+        val := tuiSummaryValStyle.Render(" " + row.val)
         content.WriteString(key + val + "\n")
     }
 
-    b.WriteString(boxStyle.Render(content.String()))
+    b.WriteString(tuiBoxStyle.Render(content.String()))
     b.WriteString("\n\n")
 
-    b.WriteString("  " + selectedStyle.Render("Press Enter to install"))
+    b.WriteString(tuiSelectedStyle.Render("Press Enter to install"))
     b.WriteString("\n")
 
     return b.String()
 }
 
+// getResult extracts the final configuration from answered questions.
 func (m tuiModel) getResult() tuiResult {
     result := tuiResult{
         network:    "testnet4",
@@ -485,7 +524,7 @@ func (m tuiModel) getResult() tuiResult {
 }
 
 // RunTUI launches the interactive setup TUI and returns the
-// user's choices. Returns nil if the user cancelled.
+// user's choices as an installConfig. Returns nil if cancelled.
 func RunTUI() (*installConfig, error) {
     m := newTuiModel()
 
@@ -509,12 +548,19 @@ func RunTUI() (*installConfig, error) {
         sshPort:    22,
     }
 
-    // Parse prune size
     fmt.Sscanf(r.pruneSize, "%d", &cfg.pruneSize)
 
-    // Parse SSH port
     if r.sshPort != "custom" {
         fmt.Sscanf(r.sshPort, "%d", &cfg.sshPort)
+    }
+
+    // If hybrid mode, auto-detect public IP silently
+    if cfg.p2pMode == "hybrid" {
+        cfg.publicIPv4 = detectPublicIP()
+        if cfg.publicIPv4 == "" {
+            // Can't detect IP — fall back to Tor only
+            cfg.p2pMode = "tor"
+        }
     }
 
     return cfg, nil
