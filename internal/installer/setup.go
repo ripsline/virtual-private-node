@@ -67,7 +67,7 @@ func Run() error {
     }
 
     // LND wallet creation — separate interactive phase
-    // Shown in a centered TUI box to distinguish it from
+    // Shown in centered TUI boxes to distinguish it from
     // the automated install steps above.
     if cfg.components == "bitcoin+lnd" {
         if err := walletCreationPhase(cfg); err != nil {
@@ -97,7 +97,7 @@ func Run() error {
         return fmt.Errorf("save config: %w", err)
     }
 
-    // Show brief completion message then launch welcome TUI
+    // Show brief completion message
     fmt.Println()
     fmt.Println("  ═══════════════════════════════════════════")
     fmt.Println("    Installation Complete!")
@@ -146,13 +146,12 @@ func buildSteps(cfg *installConfig) []step {
     return steps
 }
 
-// ── Centered TUI box ─────────────────────────────────────
+// ── Centered TUI boxes ───────────────────────────────────
 //
-// Used for wallet creation and auto-unlock prompts.
+// Used for wallet creation, seed confirmation, and auto-unlock.
 // Creates a mini bubbletea program that shows a centered
 // bordered box with a message and waits for Enter.
 
-// boxStyle for the centered information boxes
 var setupBoxStyle = lipgloss.NewStyle().
     Border(lipgloss.RoundedBorder()).
     BorderForeground(lipgloss.Color("245")).
@@ -178,7 +177,6 @@ type infoBoxModel struct {
     content string
     width   int
     height  int
-    done    bool
 }
 
 func (m infoBoxModel) Init() tea.Cmd { return nil }
@@ -190,7 +188,6 @@ func (m infoBoxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         m.height = msg.Height
     case tea.KeyMsg:
         if msg.String() == "enter" || msg.String() == "ctrl+c" {
-            m.done = true
             return m, tea.Quit
         }
     }
@@ -235,8 +232,8 @@ func walletCreationPhase(cfg *installConfig) error {
         setupTextStyle.Render("  4. Optionally set a cipher seed passphrase") + "\n" +
         setupTextStyle.Render("     (press Enter to skip)") + "\n" +
         setupTextStyle.Render("  5. Write down your 24-word seed phrase") + "\n\n" +
-        setupWarnStyle.Render("⚠️  Your seed phrase is the ONLY way to recover funds.") + "\n" +
-        setupWarnStyle.Render("⚠️  No one can help you if you lose it.") + "\n\n" +
+        setupWarnStyle.Render("WARNING: Your seed phrase is the ONLY way to recover funds.") + "\n" +
+        setupWarnStyle.Render("WARNING: No one can help you if you lose it.") + "\n\n" +
         setupDimStyle.Render("Press Enter to continue...")
 
     showInfoBox(walletInfo)
@@ -267,7 +264,19 @@ func walletCreationPhase(cfg *installConfig) error {
         return fmt.Errorf("lncli create failed: %w", err)
     }
 
-    // Show auto-unlock box — we default to yes, just need the password
+    // Show seed confirmation box — gives user time to verify
+    // they've written down their seed before proceeding
+    seedConfirm := setupTitleStyle.Render("Seed Phrase Confirmation") + "\n\n" +
+        setupWarnStyle.Render("Have you written down your 24-word seed phrase?") + "\n\n" +
+        setupTextStyle.Render("Your seed phrase was displayed above by LND.") + "\n" +
+        setupTextStyle.Render("If you scroll up, you should still be able to see it.") + "\n\n" +
+        setupTextStyle.Render("Make sure you have saved it in a secure location.") + "\n" +
+        setupTextStyle.Render("You will NOT be able to see it again.") + "\n\n" +
+        setupDimStyle.Render("Press Enter to confirm you have saved your seed...")
+
+    showInfoBox(seedConfirm)
+
+    // Auto-unlock box — we default to yes, just need the password
     unlockInfo := setupTitleStyle.Render("Auto-Unlock Configuration") + "\n\n" +
         setupTextStyle.Render("Your wallet password will be stored on disk so LND") + "\n" +
         setupTextStyle.Render("can start automatically after a server reboot.") + "\n\n" +

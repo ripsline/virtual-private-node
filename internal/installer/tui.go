@@ -208,6 +208,10 @@ type tuiResult struct {
     sshPort    string
 }
 
+// contentWidth is the fixed width for all content boxes and
+// the title/tab bar so everything lines up consistently.
+const contentWidth = 60
+
 func newTuiModel() tuiModel {
     questions := buildQuestions()
     questions = append(questions, sshQuestion())
@@ -264,7 +268,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             return m.handleEnter()
 
         // Go back to previous question
-        case "backspace", "left", "h":
+        case "backspace":
             if m.phase == phaseQuestions && m.current > 0 {
                 m.current--
             } else if m.phase == phaseSummary {
@@ -351,18 +355,18 @@ func (m tuiModel) handleComponentChoice() tuiModel {
     return m
 }
 
-// View renders the install TUI. Returns a loading screen if
-// the terminal size hasn't been reported yet.
+// View renders the install TUI centered in the terminal.
 func (m tuiModel) View() string {
-    // Wait for terminal size before rendering
     if m.width == 0 || m.height == 0 {
         return "Loading..."
     }
 
     var b strings.Builder
 
-    // Title
-    b.WriteString(tuiTitleStyle.Render(" Virtual Private Node "))
+    // Title — same width as content
+    titleText := " Virtual Private Node "
+    title := tuiTitleStyle.Width(contentWidth).Align(lipgloss.Center).Render(titleText)
+    b.WriteString(title)
     b.WriteString("\n\n")
 
     switch m.phase {
@@ -422,12 +426,12 @@ func (m tuiModel) renderQuestion() string {
 
         // Show warning if this option is currently highlighted
         if i == m.cursors[m.current] && opt.warn != "" {
-            b.WriteString("  " + tuiWarningStyle.Render("⚠️  "+opt.warn))
+            b.WriteString("  " + tuiWarningStyle.Render("WARNING: "+opt.warn))
             b.WriteString("\n")
         }
     }
 
-    // Show previously answered questions below the current one
+    // Show previously answered questions
     if m.current > 0 {
         b.WriteString("\n")
         b.WriteString(tuiDimStyle.Render("─────────────────────────────"))
@@ -475,7 +479,7 @@ func (m tuiModel) renderSummary() string {
         )
     }
 
-    // Build the summary content inside a bordered box
+    // Build summary content inside a bordered box
     var content strings.Builder
     for _, row := range rows {
         key := tuiSummaryKeyStyle.Render(row.key + ":")
@@ -554,11 +558,11 @@ func RunTUI() (*installConfig, error) {
         fmt.Sscanf(r.sshPort, "%d", &cfg.sshPort)
     }
 
-    // If hybrid mode, auto-detect public IP silently
+    // If hybrid mode, auto-detect public IP silently.
+    // If detection fails, fall back to Tor only.
     if cfg.p2pMode == "hybrid" {
         cfg.publicIPv4 = detectPublicIP()
         if cfg.publicIPv4 == "" {
-            // Can't detect IP — fall back to Tor only
             cfg.p2pMode = "tor"
         }
     }
