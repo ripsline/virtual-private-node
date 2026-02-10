@@ -20,12 +20,11 @@ func main() {
             fmt.Fprintf(os.Stderr, "Warning: could not load config: %v\n", err)
             cfg = config.Default()
         }
+        // Launch the TUI welcome screen
         welcome.Show(cfg, version)
         return
     }
 
-    // First run — start the installer.
-    // Must be root (called via sudo from .bash_profile).
     if os.Geteuid() != 0 {
         fmt.Println("ERROR: Installer must run as root.")
         fmt.Println("Run with: sudo rlvpn")

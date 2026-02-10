@@ -592,6 +592,7 @@ func (m Model) renderSparrow() []string {
         return rows
     }
 
+    // RPC port depends on network
     port := "8332"
     if !m.cfg.IsMainnet() {
         port = "48332"
