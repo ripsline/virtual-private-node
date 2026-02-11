@@ -8,8 +8,6 @@ import (
     "github.com/charmbracelet/lipgloss"
 )
 
-// ── Styles ───────────────────────────────────────────────
-
 var (
     tuiTitleStyle = lipgloss.NewStyle().
             Bold(true).
@@ -21,7 +19,6 @@ var (
             Foreground(lipgloss.Color("15")).
             Bold(true)
 
-    // Yellow highlight for cursor/selected items
     tuiSelectedStyle = lipgloss.NewStyle().
                 Foreground(lipgloss.Color("220")).
                 Bold(true)
@@ -32,7 +29,6 @@ var (
     tuiDimStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("243"))
 
-    // Bright red for warnings
     tuiWarningStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("196")).
             Bold(true)
@@ -55,10 +51,7 @@ var (
             Foreground(lipgloss.Color("15"))
 )
 
-// Width divisible by 3 so tabs divide evenly
-const tuiContentWidth = 75
-
-// ── Questions ────────────────────────────────────────────
+const tuiContentWidth = 76
 
 type question struct {
     title   string
@@ -66,61 +59,41 @@ type question struct {
 }
 
 type option struct {
-    label string
-    desc  string
-    value string
-    warn  string
+    label, desc, value, warn string
 }
 
 func buildQuestions() []question {
     return []question{
-        {
-            title: "Network",
-            options: []option{
-                {label: "Mainnet", desc: "Real bitcoin — use with caution", value: "mainnet"},
-                {label: "Testnet4", desc: "Test bitcoin — safe for experimenting", value: "testnet4"},
-            },
-        },
-        {
-            title: "Components",
-            options: []option{
-                {label: "Bitcoin Core only", desc: "Pruned node routed through Tor", value: "bitcoin"},
-                {label: "Bitcoin Core + LND", desc: "Full Lightning node with Tor hidden services", value: "bitcoin+lnd"},
-            },
-        },
-        {
-            title: "Blockchain Storage (Pruned)",
-            options: []option{
-                {label: "10 GB", desc: "Minimum — works but tight", value: "10"},
-                {label: "25 GB", desc: "Recommended", value: "25"},
-                {label: "50 GB", desc: "More block history", value: "50",
-                    warn: "Make sure your VPS has at least 60 GB of disk space"},
-            },
-        },
+        {title: "Network", options: []option{
+            {label: "Mainnet", desc: "Real bitcoin — use with caution", value: "mainnet"},
+            {label: "Testnet4", desc: "Test bitcoin — safe for experimenting", value: "testnet4"},
+        }},
+        {title: "Components", options: []option{
+            {label: "Bitcoin Core only", desc: "Pruned node routed through Tor", value: "bitcoin"},
+            {label: "Bitcoin Core + LND", desc: "Full Lightning node with Tor hidden services", value: "bitcoin+lnd"},
+        }},
+        {title: "Blockchain Storage (Pruned)", options: []option{
+            {label: "10 GB", desc: "Minimum — works but tight", value: "10"},
+            {label: "25 GB", desc: "Recommended", value: "25"},
+            {label: "50 GB", desc: "More block history", value: "50",
+                warn: "Make sure your VPS has at least 60 GB of disk space"},
+        }},
     }
 }
 
 func p2pQuestion() question {
-    return question{
-        title: "LND P2P Mode",
-        options: []option{
-            {label: "Tor only", desc: "Maximum privacy — all connections through Tor", value: "tor"},
-            {label: "Hybrid", desc: "Tor + clearnet — better routing performance", value: "hybrid"},
-        },
-    }
+    return question{title: "LND P2P Mode", options: []option{
+        {label: "Tor only", desc: "Maximum privacy", value: "tor"},
+        {label: "Hybrid", desc: "Tor + clearnet — better routing", value: "hybrid"},
+    }}
 }
 
 func sshQuestion() question {
-    return question{
-        title: "SSH Port",
-        options: []option{
-            {label: "22", desc: "Default SSH port", value: "22"},
-            {label: "Custom", desc: "Enter a custom port after selection", value: "custom"},
-        },
-    }
+    return question{title: "SSH Port", options: []option{
+        {label: "22", desc: "Default SSH port", value: "22"},
+        {label: "Custom", desc: "Enter a custom port after selection", value: "custom"},
+    }}
 }
-
-// ── TUI Model ────────────────────────────────────────────
 
 type tuiPhase int
 
@@ -143,20 +116,16 @@ type tuiModel struct {
 }
 
 type tuiResult struct {
-    network    string
-    components string
-    pruneSize  string
-    p2pMode    string
-    sshPort    string
+    network, components, pruneSize, p2pMode, sshPort string
 }
 
 func newTuiModel(version string) tuiModel {
-    questions := buildQuestions()
-    questions = append(questions, sshQuestion())
+    q := buildQuestions()
+    q = append(q, sshQuestion())
     return tuiModel{
-        questions: questions,
-        cursors:   make([]int, len(questions)),
-        answers:   make([]string, len(questions)),
+        questions: q,
+        cursors:   make([]int, len(q)),
+        answers:   make([]string, len(q)),
         version:   version,
     }
 }
@@ -168,8 +137,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case tea.WindowSizeMsg:
         m.width = msg.Width
         m.height = msg.Height
-        return m, nil
-
     case tea.KeyMsg:
         switch msg.String() {
         case "ctrl+c", "q":
@@ -181,8 +148,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             }
         case "down", "j":
             if m.phase == phaseQuestions {
-                max := len(m.questions[m.current].options) - 1
-                if m.cursors[m.current] < max {
+                mx := len(m.questions[m.current].options) - 1
+                if m.cursors[m.current] < mx {
                     m.cursors[m.current]++
                 }
             }
@@ -208,14 +175,10 @@ func (m tuiModel) handleEnter() (tea.Model, tea.Cmd) {
     if m.phase != phaseQuestions {
         return m, nil
     }
-
-    q := m.questions[m.current]
-    m.answers[m.current] = q.options[m.cursors[m.current]].value
-
+    m.answers[m.current] = m.questions[m.current].options[m.cursors[m.current]].value
     if m.current == 1 {
         m = m.handleComponentChoice()
     }
-
     if m.current < len(m.questions)-1 {
         m.current++
     } else {
@@ -232,20 +195,19 @@ func (m tuiModel) handleComponentChoice() tuiModel {
             break
         }
     }
-
     if m.answers[1] == "bitcoin+lnd" && !hasP2P {
-        p2p := p2pQuestion()
-        newQ := make([]question, 0, len(m.questions)+1)
-        newQ = append(newQ, m.questions[:3]...)
-        newQ = append(newQ, p2p)
-        newQ = append(newQ, m.questions[3:]...)
-        m.questions = newQ
-        newC := make([]int, len(m.questions))
-        copy(newC, m.cursors)
-        m.cursors = newC
-        newA := make([]string, len(m.questions))
-        copy(newA, m.answers)
-        m.answers = newA
+        p := p2pQuestion()
+        nq := make([]question, 0, len(m.questions)+1)
+        nq = append(nq, m.questions[:3]...)
+        nq = append(nq, p)
+        nq = append(nq, m.questions[3:]...)
+        m.questions = nq
+        nc := make([]int, len(m.questions))
+        copy(nc, m.cursors)
+        m.cursors = nc
+        na := make([]string, len(m.questions))
+        copy(na, m.answers)
+        m.answers = na
     } else if m.answers[1] == "bitcoin" && hasP2P {
         for i, q := range m.questions {
             if q.title == "LND P2P Mode" {
@@ -259,20 +221,14 @@ func (m tuiModel) handleComponentChoice() tuiModel {
     return m
 }
 
-// View renders the install TUI inside a bordered box matching
-// the welcome TUI style with the same title bar.
 func (m tuiModel) View() string {
-    if m.width == 0 || m.height == 0 {
+    if m.width == 0 {
         return "Loading..."
     }
-
-    boxWidth := iMinInt(m.width-4, tuiContentWidth)
-
-    // Title bar — same as welcome TUI
-    title := tuiTitleStyle.Width(boxWidth).Align(lipgloss.Center).
+    bw := iMin(m.width-4, tuiContentWidth)
+    title := tuiTitleStyle.Width(bw).Align(lipgloss.Center).
         Render(fmt.Sprintf(" Virtual Private Node v%s ", m.version))
 
-    // Render content based on phase
     var content string
     switch m.phase {
     case phaseQuestions:
@@ -281,7 +237,6 @@ func (m tuiModel) View() string {
         content = m.renderSummary()
     }
 
-    // Footer
     var footer string
     if m.phase == phaseQuestions {
         footer = tuiDimStyle.Render("  ↑↓ navigate • enter select • backspace back • q quit  ")
@@ -289,92 +244,60 @@ func (m tuiModel) View() string {
         footer = tuiDimStyle.Render("  enter confirm • backspace edit • q cancel  ")
     }
 
-    // Put content in a bordered box
-    box := tuiBoxStyle.Width(boxWidth).Render(content)
-
-    full := lipgloss.JoinVertical(lipgloss.Center,
-        "", title, "", box, "", footer)
-
-    return lipgloss.Place(m.width, m.height,
-        lipgloss.Center, lipgloss.Center, full)
+    box := tuiBoxStyle.Width(bw).Render(content)
+    full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
 }
 
 func (m tuiModel) renderQuestion() string {
     var b strings.Builder
-
-    b.WriteString(tuiDimStyle.Render(fmt.Sprintf(
-        "Question %d of %d", m.current+1, len(m.questions))))
-    b.WriteString("\n\n")
-
-    q := m.questions[m.current]
-    b.WriteString(tuiSectionStyle.Render(q.title))
-    b.WriteString("\n\n")
-
-    for i, opt := range q.options {
-        cursor := "  "
-        style := tuiUnselectedStyle
+    b.WriteString(tuiDimStyle.Render(fmt.Sprintf("Question %d of %d", m.current+1, len(m.questions))) + "\n\n")
+    b.WriteString(tuiSectionStyle.Render(m.questions[m.current].title) + "\n\n")
+    for i, opt := range m.questions[m.current].options {
+        cur, sty := "  ", tuiUnselectedStyle
         if i == m.cursors[m.current] {
-            cursor = "▸ "
-            style = tuiSelectedStyle
+            cur, sty = "▸ ", tuiSelectedStyle
         }
-        b.WriteString(style.Render(cursor+opt.label) +
-            tuiDimStyle.Render(" — "+opt.desc) + "\n")
+        b.WriteString(sty.Render(cur+opt.label) + tuiDimStyle.Render(" — "+opt.desc) + "\n")
         if i == m.cursors[m.current] && opt.warn != "" {
             b.WriteString("  " + tuiWarningStyle.Render("WARNING: "+opt.warn) + "\n")
         }
     }
-
     if m.current > 0 {
         b.WriteString("\n" + tuiDimStyle.Render("─────────────────────────────") + "\n")
         for i := 0; i < m.current; i++ {
-            b.WriteString(tuiDimStyle.Render(m.questions[i].title+": ") +
-                tuiValueStyle.Render(m.answers[i]) + "\n")
+            b.WriteString(tuiDimStyle.Render(m.questions[i].title+": ") + tuiValueStyle.Render(m.answers[i]) + "\n")
         }
     }
-
     return b.String()
 }
 
 func (m tuiModel) renderSummary() string {
     var b strings.Builder
-
-    b.WriteString(tuiSectionStyle.Render("Installation Summary"))
-    b.WriteString("\n\n")
-
+    b.WriteString(tuiSectionStyle.Render("Installation Summary") + "\n\n")
     r := m.getResult()
-    rows := []struct{ key, val string }{
-        {"Network", r.network},
-        {"Components", r.components},
-        {"Prune", r.pruneSize + " GB"},
-        {"SSH Port", r.sshPort},
+    rows := []struct{ k, v string }{
+        {"Network", r.network}, {"Components", r.components},
+        {"Prune", r.pruneSize + " GB"}, {"SSH Port", r.sshPort},
     }
-
     if r.components == "bitcoin+lnd" {
         mode := "Tor only"
         if r.p2pMode == "hybrid" {
             mode = "Hybrid (Tor + clearnet)"
         }
-        rows = append(rows[:3],
-            append([]struct{ key, val string }{{"P2P Mode", mode}}, rows[3:]...)...)
+        rows = append(rows[:3], append([]struct{ k, v string }{{"P2P Mode", mode}}, rows[3:]...)...)
     }
-
-    var content strings.Builder
+    var c strings.Builder
     for _, row := range rows {
-        content.WriteString(tuiSummaryKeyStyle.Render(row.key+":") +
-            tuiSummaryValStyle.Render(" "+row.val) + "\n")
+        c.WriteString(tuiSummaryKeyStyle.Render(row.k+":") + tuiSummaryValStyle.Render(" "+row.v) + "\n")
     }
-    b.WriteString(tuiBoxStyle.Render(content.String()))
-    b.WriteString("\n\n")
+    b.WriteString(tuiBoxStyle.Render(c.String()) + "\n\n")
     b.WriteString(tuiSelectedStyle.Render("Press Enter to install"))
-
     return b.String()
 }
 
 func (m tuiModel) getResult() tuiResult {
-    r := tuiResult{
-        network: "testnet4", components: "bitcoin+lnd",
-        pruneSize: "25", p2pMode: "tor", sshPort: "22",
-    }
+    r := tuiResult{network: "testnet4", components: "bitcoin+lnd", pruneSize: "25", p2pMode: "tor", sshPort: "22"}
     for i, q := range m.questions {
         if i >= len(m.answers) || m.answers[i] == "" {
             continue
@@ -395,7 +318,6 @@ func (m tuiModel) getResult() tuiResult {
     return r
 }
 
-// RunTUI launches the config TUI and returns user choices.
 func RunTUI(version string) (*installConfig, error) {
     m := newTuiModel(version)
     p := tea.NewProgram(m, tea.WithAltScreen())
@@ -403,35 +325,29 @@ func RunTUI(version string) (*installConfig, error) {
     if err != nil {
         return nil, fmt.Errorf("TUI error: %w", err)
     }
-
     final := result.(tuiModel)
     if final.phase == phaseCancelled {
         return nil, nil
     }
-
     r := final.getResult()
     cfg := &installConfig{
-        network:    NetworkConfigFromName(r.network),
-        components: r.components,
-        p2pMode:    r.p2pMode,
-        sshPort:    22,
+        network: NetworkConfigFromName(r.network), components: r.components,
+        p2pMode: r.p2pMode, sshPort: 22,
     }
     fmt.Sscanf(r.pruneSize, "%d", &cfg.pruneSize)
     if r.sshPort != "custom" {
         fmt.Sscanf(r.sshPort, "%d", &cfg.sshPort)
     }
-
     if cfg.p2pMode == "hybrid" {
         cfg.publicIPv4 = detectPublicIP()
         if cfg.publicIPv4 == "" {
             cfg.p2pMode = "tor"
         }
     }
-
     return cfg, nil
 }
 
-func iMinInt(a, b int) int {
+func iMin(a, b int) int {
     if a < b {
         return a
     }

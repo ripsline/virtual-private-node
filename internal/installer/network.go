@@ -1,30 +1,23 @@
-// Package installer handles the one-time node setup.
-//
-// network.go defines the network-specific constants that
-// differ between mainnet and testnet4. Every other file
-// in this package reads from these values so the network
-// choice propagates everywhere automatically.
 package installer
 
-// NetworkConfig holds all values that change between networks.
+// NetworkConfig holds all values that differ between networks.
 type NetworkConfig struct {
-    Name           string // "mainnet" or "testnet4"
-    BitcoinFlag    string // config file directive
-    LNDBitcoinFlag string // lnd.conf chain flag
+    Name           string
+    BitcoinFlag    string
+    LNDBitcoinFlag string
     RPCPort        int
     P2PPort        int
     ZMQBlockPort   int
     ZMQTxPort      int
-    LNCLINetwork   string // --network flag for lncli
-    CookiePath     string // relative to datadir
-    DataSubdir     string // subdirectory under /var/lib/bitcoin
+    LNCLINetwork   string
+    CookiePath     string
+    DataSubdir     string
 }
 
-// Mainnet returns the mainnet configuration.
 func Mainnet() *NetworkConfig {
     return &NetworkConfig{
         Name:           "mainnet",
-        BitcoinFlag:    "", // no flag needed for mainnet
+        BitcoinFlag:    "",
         LNDBitcoinFlag: "bitcoin.mainnet=true",
         RPCPort:        8332,
         P2PPort:        8333,
@@ -36,7 +29,6 @@ func Mainnet() *NetworkConfig {
     }
 }
 
-// Testnet4 returns the testnet4 configuration.
 func Testnet4() *NetworkConfig {
     return &NetworkConfig{
         Name:           "testnet4",
@@ -52,7 +44,6 @@ func Testnet4() *NetworkConfig {
     }
 }
 
-// NetworkConfigFromName returns the config for the given network name.
 func NetworkConfigFromName(name string) *NetworkConfig {
     if name == "mainnet" {
         return Mainnet()

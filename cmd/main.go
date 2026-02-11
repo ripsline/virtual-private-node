@@ -33,6 +33,7 @@ func main() {
         os.Exit(1)
     }
 
+    // Launch welcome TUI immediately after install
     cfg, err := config.Load()
     if err != nil {
         fmt.Fprintf(os.Stderr, "Warning: could not load config: %v\n", err)
