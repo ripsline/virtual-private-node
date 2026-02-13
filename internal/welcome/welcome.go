@@ -441,7 +441,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
             m.subview = svLightning
         }
     case tabPairing:
-        if m.pairingFocus == 0 && m.cfg.HasLND() {
+        if m.pairingFocus == 0 && m.cfg.HasLND() && m.cfg.WalletExists() {
             m.subview = svZeus
         } else if m.pairingFocus == 1 {
             m.subview = svSparrow
@@ -533,9 +533,9 @@ func (m Model) viewTabs(tw int) string {
         t wTab
     }{
         {"Dashboard", tabDashboard},
-        {"Wallet Pairing", tabPairing},
+        {"Pairing", tabPairing},
         {"Logs", tabLogs},
-        {"Additional Software", tabSoftware},
+        {"Add-ons", tabSoftware},
     }
     w := tw / len(tabs)
     var out []string
@@ -799,14 +799,18 @@ func (m Model) viewLightning() string {
         litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
         if litOnion != "" {
             lines = append(lines, "")
-            lines = append(lines, "  "+wLabelStyle.Render("Address: ")+
-                wMonoStyle.Render(litOnion))
-            lines = append(lines, "  "+wLabelStyle.Render("Port: ")+
+            lines = append(lines, "    "+wLabelStyle.Render("Address:"))
+            lines = append(lines, "    "+wMonoStyle.Render(litOnion))
+            lines = append(lines, "    "+wLabelStyle.Render("Port: ")+
                 wMonoStyle.Render("8443"))
             lines = append(lines, "")
             lines = append(lines, "  "+wActionStyle.Render("[u] view full URL to copy"))
             lines = append(lines, "")
-            lines = append(lines, "  "+wDimStyle.Render("Open in Tor Browser. Accept security warning."))
+            lines = append(lines, "")
+            lines = append(lines, "    "+wDimStyle.Render("Open in Tor Browser."))
+            lines = append(lines, "    "+wDimStyle.Render("Your browser will show a security warning."))
+            lines = append(lines, "    "+wDimStyle.Render("Click Advanced → Accept Risk and Continue."))
+            lines = append(lines, "    "+wDimStyle.Render("The connection is encrypted by Tor."))
         }
         if m.cfg.LITPassword != "" {
             lines = append(lines, "")
@@ -844,7 +848,8 @@ func (m Model) viewPairing(bw int) string {
     cardH := wBoxHeight
 
     var zeusLines []string
-    if m.cfg.HasLND() {
+    zeusEnabled := m.cfg.HasLND() && m.cfg.WalletExists()
+    if zeusEnabled {
         restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
         status := wGreenDotStyle.Render("●") + " ready"
         if restOnion == "" {
@@ -855,6 +860,11 @@ func (m Model) viewPairing(bw int) string {
             wDimStyle.Render("LND REST over Tor"), "",
             status, "", wActionStyle.Render("Select for setup ▸"),
         }
+    } else if m.cfg.HasLND() {
+        zeusLines = []string{
+            wGrayedStyle.Render("⚡ Zeus Wallet"), "",
+            wGrayedStyle.Render("Create LND wallet first"),
+        }
     } else {
         zeusLines = []string{
             wGrayedStyle.Render("⚡ Zeus Wallet"), "",
@@ -863,7 +873,7 @@ func (m Model) viewPairing(bw int) string {
     }
     zBorder := wNormalBorder
     if m.pairingFocus == 0 {
-        if m.cfg.HasLND() {
+        if zeusEnabled {
             zBorder = wSelectedBorder
         } else {
             zBorder = wGrayedBorder
@@ -1048,17 +1058,12 @@ func (m Model) viewSoftware(bw int) string {
     if m.cfg.SyncthingInstalled {
         syncLines = append(syncLines, wGreenDotStyle.Render("●")+" "+wGoodStyle.Render("Installed"))
         syncLines = append(syncLines, "")
-        syncOnion := readOnion("/var/lib/tor/syncthing/hostname")
-        if syncOnion != "" {
-            syncLines = append(syncLines, wLabelStyle.Render("Address:"))
-            syncLines = append(syncLines, "  "+wMonoStyle.Render(syncOnion))
-            syncLines = append(syncLines, wLabelStyle.Render("Port: ")+wMonoStyle.Render("8384"))
-        }
         if m.cfg.SyncthingPassword != "" {
-            syncLines = append(syncLines, "")
             syncLines = append(syncLines, wLabelStyle.Render("User: ")+wMonoStyle.Render("admin"))
             syncLines = append(syncLines, wLabelStyle.Render("Pass: ")+wMonoStyle.Render(m.cfg.SyncthingPassword))
         }
+        syncLines = append(syncLines, "")
+        syncLines = append(syncLines, wDimStyle.Render("Open in Tor Browser"))
         syncLines = append(syncLines, "")
         syncLines = append(syncLines, wActionStyle.Render("Select for full URL ▸"))
     } else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
@@ -1093,7 +1098,12 @@ func (m Model) viewSoftware(bw int) string {
     if m.cfg.LITInstalled {
         litLines = append(litLines, wGreenDotStyle.Render("●")+" "+wGoodStyle.Render("Installed"))
         litLines = append(litLines, "")
-        litLines = append(litLines, wDimStyle.Render("See Lightning card"))
+        if m.cfg.LITPassword != "" {
+            litLines = append(litLines, wLabelStyle.Render("Password:"))
+            litLines = append(litLines, "  "+wMonoStyle.Render(m.cfg.LITPassword))
+        }
+        litLines = append(litLines, "")
+        litLines = append(litLines, wDimStyle.Render("Open in Tor Browser"))
         litLines = append(litLines, "")
         litLines = append(litLines, wActionStyle.Render("Select for full URL ▸"))
     } else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
