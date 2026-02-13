@@ -26,7 +26,6 @@ func Default() *AppConfig {
         Components: "bitcoin+lnd",
         PruneSize:  25,
         P2PMode:    "tor",
-        SSHPort:    22,
     }
 }
 

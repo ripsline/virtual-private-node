@@ -111,7 +111,7 @@ func configureFirewall(cfg *installConfig) error {
     commands := [][]string{
         {"ufw", "default", "deny", "incoming"},
         {"ufw", "default", "allow", "outgoing"},
-        {"ufw", "allow", fmt.Sprintf("%d/tcp", cfg.sshPort)},
+        {"ufw", "allow", "22/tcp"},
     }
 
     if cfg.components == "bitcoin+lnd" && cfg.p2pMode == "hybrid" {

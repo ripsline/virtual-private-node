@@ -294,7 +294,7 @@ func RunTUI(version string) (*installConfig, error) {
     r := final.getResult()
     cfg := &installConfig{
         network: NetworkConfigFromName(r.network), components: r.components,
-        p2pMode: r.p2pMode, sshPort: 22,
+        p2pMode: r.p2pMode,
     }
     fmt.Sscanf(r.pruneSize, "%d", &cfg.pruneSize)
     if cfg.p2pMode == "hybrid" {
