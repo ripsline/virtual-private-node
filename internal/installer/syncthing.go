@@ -1,8 +1,6 @@
 package installer
 
 import (
-    "crypto/rand"
-    "encoding/hex"
     "fmt"
     "os"
     "os/exec"
