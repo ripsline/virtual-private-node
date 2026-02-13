@@ -103,17 +103,10 @@ func configureSyncthingAuth(password string) error {
         "<address>0.0.0.0:8384</address>",
         "<address>127.0.0.1:8384</address>", 1)
 
-    // Inject user, password, and insecureSkipHostcheck
-    // into the <gui> block after <address>.
-    // The generated config may not have these tags,
-    // so we inject them rather than replacing.
+    // Inject insecureSkipHostcheck for Tor access
     addrTag := "<address>127.0.0.1:8384</address>"
-    injection := fmt.Sprintf(
-        "%s\n        <user>admin</user>\n"+
-            "        <password>%s</password>\n"+
-            "        <insecureSkipHostcheck>true"+
-            "</insecureSkipHostcheck>",
-        addrTag, password)
+    injection := addrTag + "\n        " +
+        "<insecureSkipHostcheck>true</insecureSkipHostcheck>"
     content = strings.Replace(content, addrTag, injection, 1)
 
     if err := os.WriteFile(configPath,
@@ -127,7 +120,24 @@ func configureSyncthingAuth(password string) error {
             err, output)
     }
 
-    // Verify
+    // Set credentials via CLI — this handles bcrypt hashing
+    cmd = exec.Command("sudo", "-u", systemUser, "syncthing",
+        "cli", "--home=/etc/syncthing",
+        "config", "gui", "user", "set", "admin")
+    if output, err := cmd.CombinedOutput(); err != nil {
+        return fmt.Errorf("set syncthing user: %s: %s",
+            err, output)
+    }
+
+    cmd = exec.Command("sudo", "-u", systemUser, "syncthing",
+        "cli", "--home=/etc/syncthing",
+        "config", "gui", "password", "set", password)
+    if output, err := cmd.CombinedOutput(); err != nil {
+        return fmt.Errorf("set syncthing password: %s: %s",
+            err, output)
+    }
+
+    // Verify config
     verify, err := os.ReadFile(configPath)
     if err != nil {
         return fmt.Errorf("verify syncthing config: %w", err)
@@ -140,8 +150,6 @@ func configureSyncthingAuth(password string) error {
         {"<address>127.0.0.1:8384</address>",
             "GUI bind address"},
         {"<user>admin</user>", "GUI username"},
-        {fmt.Sprintf("<password>%s</password>", password),
-            "GUI password"},
         {"<insecureSkipHostcheck>true</insecureSkipHostcheck>",
             "host check skip for Tor"},
     }
@@ -151,6 +159,14 @@ func configureSyncthingAuth(password string) error {
                 "syncthing config verification failed: "+
                     "%s not set", c.desc)
         }
+    }
+    // Password is bcrypt-hashed by CLI, so we verify
+    // a hash exists rather than checking plaintext
+    if !strings.Contains(verifyStr, "<password>$2a$") &&
+        !strings.Contains(verifyStr, "<password>$2b$") {
+        return fmt.Errorf(
+            "syncthing config verification failed: " +
+                "GUI password not set")
     }
 
     return nil
