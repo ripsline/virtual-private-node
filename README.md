@@ -107,33 +107,6 @@ ssh ripsline@YOUR_SERVER_IP
 
 The installer starts automatically.
 
-#### 5. Enable Unattended Security Upgrades (manual)
-
-The automated installer configures this automatically. If building
-from source, enable it manually:
-
-~~~bash
-sudo apt install -y unattended-upgrades apt-listchanges
-
-# Enable auto-updates
-cat << 'EOF' | sudo tee /etc/apt/apt.conf.d/20auto-upgrades
-APT::Periodic::Update-Package-Lists "1";
-APT::Periodic::Unattended-Upgrade "1";
-APT::Periodic::AutocleanInterval "7";
-EOF
-
-# Configure security-only updates with auto-reboot at 4 AM
-cat << 'EOF' | sudo tee /etc/apt/apt.conf.d/50unattended-upgrades
-Unattended-Upgrade::Allowed-Origins {
-    "${distro_id}:${distro_codename}-security";
-};
-Unattended-Upgrade::Automatic-Reboot "true";
-Unattended-Upgrade::Automatic-Reboot-Time "04:00";
-Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
-Unattended-Upgrade::Remove-Unused-Dependencies "true";
-EOF
-~~~
-
 ### What the installer asks
 
 | Question | Options |
@@ -192,17 +165,15 @@ with unverified software.
 
 #### Zeus (Lightning — LND REST over Tor)
 
-1. Install Zeus and enable Tor in settings
-2. Open the **Pairing** tab, select Zeus, press `m` for macaroon
-3. Add node → Manual setup → paste host, port, and macaroon
+1. coming soon...
+2. coming soon...
+3. coming soon...
 
 #### Sparrow (On-chain — Bitcoin Core RPC over Tor)
 
-1. Open the **Pairing** tab, select Sparrow
-2. In Sparrow: Preferences → Server → Bitcoin Core
-3. Enter URL, port, user (`__cookie__`), and password
-4. Set SOCKS5 proxy to `localhost:9050`
-5. Sparrow needs Tor running on your local machine
+1. coming soon...
+2. coming soon...
+3. coming soon...
 
 Note: the cookie password changes when Bitcoin Core restarts.
 

@@ -63,7 +63,7 @@ func createSyncthingDirs() error {
     }{
         {"/var/lib/syncthing", systemUser + ":" + systemUser, 0750},
         {"/var/lib/syncthing/lnd-backup", systemUser + ":" + systemUser, 0750},
-        {"/etc/syncthing", "root:" + systemUser, 0750},
+        {"/etc/syncthing", systemUser + ":" + systemUser, 0750},
     }
 
     for _, d := range dirs {
@@ -106,10 +106,17 @@ WantedBy=multi-user.target
 // Syncthing needs to start once to generate its config, then we
 // modify the config to set the password.
 func configureSyncthingAuth(password string) error {
-    // Start syncthing briefly to generate default config
+    // Ensure syncthing can write to its config directory
+    exec.Command("chown", systemUser+":"+systemUser, "/etc/syncthing").Run()
+    exec.Command("chmod", "750", "/etc/syncthing").Run()
+
+    // Generate default config as the bitcoin user
     cmd := exec.Command("sudo", "-u", systemUser, "syncthing",
         "generate", "--home=/etc/syncthing")
-    cmd.CombinedOutput()
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        return fmt.Errorf("syncthing generate failed: %s: %s", err, output)
+    }
 
     // Read the generated config
     configPath := "/etc/syncthing/config.xml"

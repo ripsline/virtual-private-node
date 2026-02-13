@@ -392,7 +392,7 @@ func (m Model) navLeft() Model {
         } else if m.dashCard == cardLightning {
             m.dashCard = cardBitcoin
         }
-    case tabPairing:
+    case tabPairing, tabSoftware:
         m.pairingFocus = 0
     }
     return m
@@ -406,7 +406,7 @@ func (m Model) navRight() Model {
         } else if m.dashCard == cardBitcoin {
             m.dashCard = cardLightning
         }
-    case tabPairing:
+    case tabPairing, tabSoftware:
         m.pairingFocus = 1
     }
     return m
