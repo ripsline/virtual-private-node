@@ -345,6 +345,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
                 m.subview = svQR
                 return m, nil
             }
+        }
         return m, nil
     }
 
