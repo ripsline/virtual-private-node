@@ -6,6 +6,8 @@ import (
     "os/exec"
     "strings"
 
+    "golang.org/x/crypto/bcrypt"
+
     "github.com/ripsline/virtual-private-node/internal/config"
 )
 
@@ -96,6 +98,13 @@ func configureSyncthingAuth(password string) error {
         return fmt.Errorf("read config: %w", err)
     }
 
+    // Bcrypt hash the password
+    hash, err := bcrypt.GenerateFromPassword(
+        []byte(password), bcrypt.DefaultCost)
+    if err != nil {
+        return fmt.Errorf("hash password: %w", err)
+    }
+
     content := string(data)
 
     // Bind to localhost only
@@ -103,10 +112,15 @@ func configureSyncthingAuth(password string) error {
         "<address>0.0.0.0:8384</address>",
         "<address>127.0.0.1:8384</address>", 1)
 
-    // Inject insecureSkipHostcheck for Tor access
+    // Inject user, hashed password, and hostcheck skip
+    // after the address tag
     addrTag := "<address>127.0.0.1:8384</address>"
-    injection := addrTag + "\n        " +
-        "<insecureSkipHostcheck>true</insecureSkipHostcheck>"
+    injection := fmt.Sprintf(
+        "%s\n        <user>admin</user>\n"+
+            "        <password>%s</password>\n"+
+            "        <insecureSkipHostcheck>true"+
+            "</insecureSkipHostcheck>",
+        addrTag, string(hash))
     content = strings.Replace(content, addrTag, injection, 1)
 
     if err := os.WriteFile(configPath,
@@ -117,23 +131,6 @@ func configureSyncthingAuth(password string) error {
         systemUser+":"+systemUser,
         configPath).CombinedOutput(); err != nil {
         return fmt.Errorf("chown syncthing config: %s: %s",
-            err, output)
-    }
-
-    // Set credentials via CLI — this handles bcrypt hashing
-    cmd = exec.Command("sudo", "-u", systemUser, "syncthing",
-        "cli", "--home=/etc/syncthing",
-        "config", "gui", "user", "set", "admin")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("set syncthing user: %s: %s",
-            err, output)
-    }
-
-    cmd = exec.Command("sudo", "-u", systemUser, "syncthing",
-        "cli", "--home=/etc/syncthing",
-        "config", "gui", "password", "set", password)
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("set syncthing password: %s: %s",
             err, output)
     }
 
@@ -160,8 +157,6 @@ func configureSyncthingAuth(password string) error {
                     "%s not set", c.desc)
         }
     }
-    // Password is bcrypt-hashed by CLI, so we verify
-    // a hash exists rather than checking plaintext
     if !strings.Contains(verifyStr, "<password>$2a$") &&
         !strings.Contains(verifyStr, "<password>$2b$") {
         return fmt.Errorf(

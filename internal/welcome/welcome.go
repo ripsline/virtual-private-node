@@ -628,9 +628,9 @@ func (m Model) View() string {
         gap = 0
     }
     full := lipgloss.JoinVertical(lipgloss.Center,
-        body, strings.Repeat("\n", gap), footer)
+        body, "", footer)
     return lipgloss.Place(m.width, m.height,
-        lipgloss.Center, lipgloss.Top, full)
+        lipgloss.Center, lipgloss.Center, full)
 }
 
 func (m Model) viewTabs(tw int) string {
