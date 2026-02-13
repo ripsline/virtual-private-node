@@ -293,7 +293,6 @@ func Run() error {
     appCfg := &config.AppConfig{
         Network: cfg.network.Name, Components: cfg.components,
         PruneSize: cfg.pruneSize, P2PMode: cfg.p2pMode,
-        SSHPort: cfg.sshPort,
     }
     return config.Save(appCfg)
 }
