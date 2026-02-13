@@ -107,10 +107,30 @@ func configureSyncthingAuth(password string) error {
 
     content := string(data)
 
-    // Bind to localhost only
+    // Bind GUI to localhost only
     content = strings.Replace(content,
         "<address>0.0.0.0:8384</address>",
         "<address>127.0.0.1:8384</address>", 1)
+
+    // Disable all discovery and relay features.
+    // Both devices are manually paired via Tor.
+    content = strings.Replace(content,
+        "<globalAnnounceEnabled>true</globalAnnounceEnabled>",
+        "<globalAnnounceEnabled>false</globalAnnounceEnabled>", 1)
+    content = strings.Replace(content,
+        "<localAnnounceEnabled>true</localAnnounceEnabled>",
+        "<localAnnounceEnabled>false</localAnnounceEnabled>", 1)
+    content = strings.Replace(content,
+        "<relaysEnabled>true</relaysEnabled>",
+        "<relaysEnabled>false</relaysEnabled>", 1)
+    content = strings.Replace(content,
+        "<natEnabled>true</natEnabled>",
+        "<natEnabled>false</natEnabled>", 1)
+
+    // Bind sync listener to localhost — only reachable via Tor
+    content = strings.Replace(content,
+        "<listenAddress>default</listenAddress>",
+        "<listenAddress>tcp://127.0.0.1:22000</listenAddress>", 1)
 
     // Inject user, hashed password, and hostcheck skip
     // after the address tag
@@ -149,6 +169,12 @@ func configureSyncthingAuth(password string) error {
         {"<user>admin</user>", "GUI username"},
         {"<insecureSkipHostcheck>true</insecureSkipHostcheck>",
             "host check skip for Tor"},
+        {"<globalAnnounceEnabled>false</globalAnnounceEnabled>",
+            "global discovery disabled"},
+        {"<localAnnounceEnabled>false</localAnnounceEnabled>",
+            "local discovery disabled"},
+        {"tcp://127.0.0.1:22000",
+            "sync listener bound to localhost"},
     }
     for _, c := range checks {
         if !strings.Contains(verifyStr, c.contains) {
@@ -234,8 +260,13 @@ func addSyncthingTorService() error {
 # Syncthing web UI (Tor only, HTTP)
 HiddenServiceDir /var/lib/tor/syncthing/
 HiddenServicePort 8384 127.0.0.1:8384
+
+# Syncthing sync protocol (Tor only)
+HiddenServiceDir /var/lib/tor/syncthing-sync/
+HiddenServicePort 22000 127.0.0.1:22000
 `
-    return os.WriteFile("/etc/tor/torrc", append(data, []byte(addition)...), 0644)
+    return os.WriteFile("/etc/tor/torrc",
+        append(data, []byte(addition)...), 0644)
 }
 
 func startSyncthing() error {
