@@ -116,6 +116,7 @@ type statusMsg struct {
     btcProgress                 string
     btcSynced                   bool
     btcResponding               bool
+    rebootRequired              bool
 }
 
 type tickMsg time.Time
@@ -131,6 +132,7 @@ type Model struct {
     cardActive   bool
     svcCursor    int
     svcConfirm   string
+    sysConfirm   string
     logSel       logSelection
     pairingFocus int
     urlTarget    string
@@ -225,6 +227,10 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
         s.btcSize = dirSize("/var/lib/bitcoin")
         if cfg.HasLND() {
             s.lndSize = dirSize("/var/lib/lnd")
+        }
+
+        if _, err := os.Stat("/var/run/reboot-required"); err == nil {
+            s.rebootRequired = true
         }
 
         ctx, cancel := context.WithTimeout(
@@ -339,16 +345,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
                 m.subview = svQR
                 return m, nil
             }
-        case "u":
-            if m.subview == svLightning {
-                litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
-                if litOnion != "" {
-                    m.urlTarget = "https://" + litOnion + ":8443"
-                    m.subview = svFullURL
-                    return m, nil
-                }
-            }
-        }
         return m, nil
     }
 
@@ -398,6 +394,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
     case "backspace":
         m.cardActive = false
         m.svcConfirm = ""
+        m.sysConfirm = ""
         return m, nil
     case "q":
         return m, tea.Quit
@@ -405,11 +402,13 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
         m.activeTab = (m.activeTab + 1) % 4
         m.cardActive = false
         m.svcConfirm = ""
+        m.sysConfirm = ""
         return m, nil
     case "shift+tab":
         m.activeTab = (m.activeTab + 3) % 4
         m.cardActive = false
         m.svcConfirm = ""
+        m.sysConfirm = ""
         return m, nil
     }
 
@@ -448,9 +447,34 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
     }
 
     if m.dashCard == cardSystem {
-        if key == "u" {
-            m.shellAction = svSystemUpdate
-            return m, tea.Quit
+        if m.sysConfirm != "" {
+            switch key {
+            case "y":
+                action := m.sysConfirm
+                m.sysConfirm = ""
+                if action == "update" {
+                    m.shellAction = svSystemUpdate
+                    return m, tea.Quit
+                }
+                if action == "reboot" {
+                    return m, func() tea.Msg {
+                        exec.Command("reboot").Run()
+                        return svcActionDoneMsg{}
+                    }
+                }
+            default:
+                m.sysConfirm = ""
+                return m, nil
+            }
+            return m, nil
+        }
+        switch key {
+        case "u":
+            m.sysConfirm = "update"
+        case "r":
+            if m.status != nil && m.status.rebootRequired {
+                m.sysConfirm = "reboot"
+            }
         }
     }
 
@@ -664,6 +688,10 @@ func (m Model) viewFooter() string {
                 "  ↑↓ select • [r]estart [s]top [a]start • backspace back • q quit  ")
         }
         if m.dashCard == cardSystem {
+            if m.status != nil && m.status.rebootRequired {
+                return wFooterStyle.Render(
+                    "  [u]pdate • [r]eboot • backspace back • q quit  ")
+            }
             return wFooterStyle.Render(
                 "  [u]pdate system • backspace back • q quit  ")
         }
@@ -789,8 +817,23 @@ func (m Model) cardSystemView(w, h int) string {
 
     if m.cardActive && m.dashCard == cardSystem {
         lines = append(lines, "")
+        if m.sysConfirm != "" {
+            lines = append(lines, wWarningStyle.Render(
+                fmt.Sprintf("%s system? [y/n]", m.sysConfirm)))
+        } else {
+            lines = append(lines,
+                wActionStyle.Render("[u]pdate packages"))
+            if m.status != nil && m.status.rebootRequired {
+                lines = append(lines,
+                    wWarningStyle.Render("⚠ Reboot required"))
+                lines = append(lines,
+                    wActionStyle.Render("[r]eboot"))
+            }
+        }
+    } else if m.status != nil && m.status.rebootRequired {
+        lines = append(lines, "")
         lines = append(lines,
-            wActionStyle.Render("[u]pdate packages"))
+            wWarningStyle.Render("⚠ Reboot required"))
     }
 
     return m.getBorder(cardSystem, true).Width(w).
@@ -871,9 +914,7 @@ func (m Model) cardLightningView(w, h int) string {
 func (m Model) viewLightning() string {
     bw := min(m.width-4, wContentWidth)
     var lines []string
-    lines = append(lines, wLightningStyle.Render("⚡ Lightning Node Details"))
-    lines = append(lines, "")
-    lines = append(lines, wHeaderStyle.Render("Wallet"))
+    lines = append(lines, wLightningStyle.Render("⚡ Lightning Node"))
     lines = append(lines, "")
 
     if m.cfg.WalletExists() {
@@ -903,43 +944,15 @@ func (m Model) viewLightning() string {
         lines = append(lines, "  "+wWarningStyle.Render("Wallet not created"))
     }
 
-    lines = append(lines, "")
-    lines = append(lines, wHeaderStyle.Render("Lightning Terminal"))
-    lines = append(lines, "")
-    if m.cfg.LITInstalled {
-        lines = append(lines, "  "+wGoodStyle.Render("Installed"))
-        litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
-        if litOnion != "" {
-            lines = append(lines, "")
-            lines = append(lines, "    "+wLabelStyle.Render("Address:"))
-            lines = append(lines, "    "+wMonoStyle.Render(litOnion))
-            lines = append(lines, "    "+wLabelStyle.Render("Port: ")+
-                wMonoStyle.Render("8443"))
-            lines = append(lines, "")
-            lines = append(lines, "  "+wActionStyle.Render("[u] view full URL to copy"))
-            lines = append(lines, "")
-            lines = append(lines, "")
-            lines = append(lines, "    "+wDimStyle.Render("Open in Tor Browser."))
-            lines = append(lines, "    "+wDimStyle.Render("Your browser will show a security warning."))
-            lines = append(lines, "    "+wDimStyle.Render("Click Advanced → Accept Risk and Continue."))
-            lines = append(lines, "    "+wDimStyle.Render("The connection is encrypted by Tor."))
-        }
-        if m.cfg.LITPassword != "" {
-            lines = append(lines, "")
-            lines = append(lines, "  "+wLabelStyle.Render("UI Password:"))
-            lines = append(lines, "  "+wMonoStyle.Render(m.cfg.LITPassword))
-        }
-    } else {
-        lines = append(lines, "  "+wDimStyle.Render("Not installed — use Add-ons tab"))
-    }
-
     content := strings.Join(lines, "\n")
     box := wOuterBox.Width(bw).Padding(1, 2).Render(content)
     title := wTitleStyle.Width(bw).Align(lipgloss.Center).
-        Render(" Lightning Details ")
-    footer := wFooterStyle.Render("  u full URL • backspace back • q quit  ")
-    full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
-    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, full)
+        Render(" ⚡ Lightning Details ")
+    footer := wFooterStyle.Render("  backspace back • q quit  ")
+    full := lipgloss.JoinVertical(lipgloss.Center,
+        "", title, "", box, "", footer)
+    return lipgloss.Place(m.width, m.height,
+        lipgloss.Center, lipgloss.Center, full)
 }
 
 // ── Full URL view ────────────────────────────────────────
@@ -999,7 +1012,7 @@ func (m Model) viewPairing(bw int) string {
         sStatus = wRedDotStyle.Render("●") + " waiting"
     }
     sparrowLines := []string{
-        wHeaderStyle.Render("Sparrow Wallet"), "",
+        wBitcoinStyle.Render("₿ Sparrow Wallet"), "",
         wDimStyle.Render("Bitcoin Core RPC / Tor"), "",
         sStatus, "", wActionStyle.Render("Select for setup ▸"),
     }
@@ -1047,13 +1060,13 @@ func (m Model) viewZeus() string {
     title := wTitleStyle.Width(bw).Align(lipgloss.Center).Render(" Zeus Wallet Setup ")
     footer := wFooterStyle.Render("  m macaroon • r QR • backspace back • q quit  ")
     full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
-    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, full)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
 }
 
 func (m Model) viewSparrow() string {
     bw := min(m.width-4, wContentWidth)
     var lines []string
-    lines = append(lines, wHeaderStyle.Render("Sparrow — Bitcoin Core RPC over Tor"))
+    lines = append(lines, wHeaderStyle.Render("₿ Sparrow — Bitcoin Core RPC over Tor"))
     lines = append(lines, "")
     lines = append(lines, wWarningStyle.Render("WARNING: Cookie changes on restart."))
     lines = append(lines, "")
@@ -1084,7 +1097,7 @@ func (m Model) viewSparrow() string {
     title := wTitleStyle.Width(bw).Align(lipgloss.Center).Render(" Sparrow Wallet Setup ")
     footer := wFooterStyle.Render("  backspace back • q quit  ")
     full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
-    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, full)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
 }
 
 func (m Model) viewMacaroon() string {
@@ -1114,7 +1127,7 @@ func (m Model) viewQR() string {
         lines = append(lines, qr)
     }
     lines = append(lines, wFooterStyle.Render("backspace back • q quit"))
-    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top,
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
         lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
@@ -1175,29 +1188,47 @@ func (m Model) viewSoftware(bw int) string {
 
     // Syncthing card
     var syncLines []string
-    syncLines = append(syncLines, wHeaderStyle.Render("Syncthing"))
+    syncLines = append(syncLines,
+        wHeaderStyle.Render("🔄 Syncthing"))
     syncLines = append(syncLines, "")
-    syncLines = append(syncLines, wDimStyle.Render("File sync & auto-backup"))
-    syncLines = append(syncLines, wDimStyle.Render("LND channel state."))
+    syncLines = append(syncLines,
+        wDimStyle.Render("File sync & auto-backup"))
+    syncLines = append(syncLines,
+        wDimStyle.Render("LND channel state."))
     syncLines = append(syncLines, "")
 
     if m.cfg.SyncthingInstalled {
-        syncLines = append(syncLines, wGreenDotStyle.Render("●")+" "+wGoodStyle.Render("Installed"))
+        syncLines = append(syncLines,
+            wGreenDotStyle.Render("●")+" "+
+                wGoodStyle.Render("Installed"))
+        syncLines = append(syncLines,
+            wLabelStyle.Render("Version: ")+
+                wValueStyle.Render(getSyncthingVersion()))
         syncLines = append(syncLines, "")
         if m.cfg.SyncthingPassword != "" {
-            syncLines = append(syncLines, wLabelStyle.Render("User: ")+wMonoStyle.Render("admin"))
-            syncLines = append(syncLines, wLabelStyle.Render("Pass: ")+wMonoStyle.Render(m.cfg.SyncthingPassword))
+            syncLines = append(syncLines,
+                wLabelStyle.Render("User: ")+
+                    wMonoStyle.Render("admin"))
+            syncLines = append(syncLines,
+                wLabelStyle.Render("Pass: ")+
+                    wMonoStyle.Render(m.cfg.SyncthingPassword))
         }
         syncLines = append(syncLines, "")
-        syncLines = append(syncLines, wDimStyle.Render("Open in Tor Browser"))
+        syncLines = append(syncLines,
+            wDimStyle.Render("Open in Tor Browser"))
         syncLines = append(syncLines, "")
-        syncLines = append(syncLines, wActionStyle.Render("Select for full URL ▸"))
+        syncLines = append(syncLines,
+            wActionStyle.Render("Select for full URL ▸"))
     } else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-        syncLines = append(syncLines, wGrayedStyle.Render("Requires LND + wallet"))
+        syncLines = append(syncLines,
+            wGrayedStyle.Render("Requires LND + wallet"))
     } else {
-        syncLines = append(syncLines, wRedDotStyle.Render("●")+" "+wDimStyle.Render("Not installed"))
+        syncLines = append(syncLines,
+            wRedDotStyle.Render("●")+" "+
+                wDimStyle.Render("Not installed"))
         syncLines = append(syncLines, "")
-        syncLines = append(syncLines, wActionStyle.Render("Select to install ▸"))
+        syncLines = append(syncLines,
+            wActionStyle.Render("Select to install ▸"))
     }
 
     sBorder := wNormalBorder
@@ -1208,36 +1239,65 @@ func (m Model) viewSoftware(bw int) string {
             sBorder = wGrayedBorder
         }
     }
-    syncCard := sBorder.Width(halfW).Padding(1, 2).Render(padLines(syncLines, cardH))
+    syncCard := sBorder.Width(halfW).Padding(1, 2).
+        Render(padLines(syncLines, cardH))
 
     // LIT card
     var litLines []string
-    litLines = append(litLines, wHeaderStyle.Render("Lightning Terminal"))
+    litLines = append(litLines,
+        wLightningStyle.Render("⚡ Lightning Terminal"))
     litLines = append(litLines, "")
-    litLines = append(litLines, wDimStyle.Render("Browser UI for channel"))
-    litLines = append(litLines, wDimStyle.Render("liquidity management."))
+    litLines = append(litLines,
+        wDimStyle.Render("Browser UI for channel"))
+    litLines = append(litLines,
+        wDimStyle.Render("liquidity management."))
     litLines = append(litLines, "")
-    litLines = append(litLines, wLabelStyle.Render("Version: ")+
-        wValueStyle.Render("v"+installer.LitVersionStr()))
+    litLines = append(litLines,
+        wLabelStyle.Render("Version: ")+
+            wValueStyle.Render("v"+installer.LitVersionStr()))
     litLines = append(litLines, "")
 
     if m.cfg.LITInstalled {
-        litLines = append(litLines, wGreenDotStyle.Render("●")+" "+wGoodStyle.Render("Installed"))
+        litLines = append(litLines,
+            wGreenDotStyle.Render("●")+" "+
+                wGoodStyle.Render("Installed"))
         litLines = append(litLines, "")
-        if m.cfg.LITPassword != "" {
-            litLines = append(litLines, wLabelStyle.Render("Password:"))
-            litLines = append(litLines, "  "+wMonoStyle.Render(m.cfg.LITPassword))
+
+        litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
+        if litOnion != "" {
+            litLines = append(litLines,
+                wLabelStyle.Render("Address:"))
+            litLines = append(litLines,
+                "  "+wMonoStyle.Render(litOnion))
+            litLines = append(litLines,
+                wLabelStyle.Render("Port: ")+
+                    wMonoStyle.Render("8443"))
+            litLines = append(litLines, "")
         }
+        if m.cfg.LITPassword != "" {
+            litLines = append(litLines,
+                wLabelStyle.Render("Password:"))
+            litLines = append(litLines,
+                "  "+wMonoStyle.Render(m.cfg.LITPassword))
+            litLines = append(litLines, "")
+        }
+        litLines = append(litLines,
+            wDimStyle.Render("Open in Tor Browser."))
+        litLines = append(litLines,
+            wDimStyle.Render("Accept the security warning."))
         litLines = append(litLines, "")
-        litLines = append(litLines, wDimStyle.Render("Open in Tor Browser"))
-        litLines = append(litLines, "")
-        litLines = append(litLines, wActionStyle.Render("Select for full URL ▸"))
+        litLines = append(litLines,
+            wActionStyle.Render("Select for full URL ▸"))
     } else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-        litLines = append(litLines, wGrayedStyle.Render("Requires LND + wallet"))
+        litLines = append(litLines,
+            wGrayedStyle.Render("Requires LND + wallet"))
     } else {
-        litLines = append(litLines, wRedDotStyle.Render("●")+" "+wDimStyle.Render("Not installed"))
+        litLines = append(litLines,
+            wRedDotStyle.Render("●")+" "+
+                wDimStyle.Render("Not installed"))
         litLines = append(litLines, "")
-        litLines = append(litLines, wActionStyle.Render("Select to install ▸"))
+        litLines = append(litLines,
+            wActionStyle.Render("Select to install ▸"))
     }
 
     lBorder := wNormalBorder
@@ -1248,9 +1308,11 @@ func (m Model) viewSoftware(bw int) string {
             lBorder = wGrayedBorder
         }
     }
-    litCard := lBorder.Width(halfW).Padding(1, 2).Render(padLines(litLines, cardH))
+    litCard := lBorder.Width(halfW).Padding(1, 2).
+        Render(padLines(litLines, cardH))
 
-    return lipgloss.JoinHorizontal(lipgloss.Top, syncCard, "  ", litCard)
+    return lipgloss.JoinHorizontal(lipgloss.Top,
+        syncCard, "  ", litCard)
 }
 
 // ── Shell actions ────────────────────────────────────────
@@ -1486,6 +1548,24 @@ func fmtKB(kb int) string {
         return fmt.Sprintf("%.1f GB", float64(kb)/1048576.0)
     }
     return fmt.Sprintf("%.0f MB", float64(kb)/1024.0)
+}
+
+func getSyncthingVersion() string {
+    ctx, cancel := context.WithTimeout(
+        context.Background(), 3*time.Second)
+    defer cancel()
+    cmd := exec.CommandContext(ctx, "syncthing",
+        "--version")
+    out, err := cmd.CombinedOutput()
+    if err != nil {
+        return "unknown"
+    }
+    // Output: "syncthing v2.0.14 ..."
+    fields := strings.Fields(string(out))
+    if len(fields) >= 2 {
+        return fields[1]
+    }
+    return "unknown"
 }
 
 func extractJSON(j, key string) string {
