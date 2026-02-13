@@ -1,8 +1,3 @@
-// Package installer — verify.go
-//
-// GPG signature and checksum verification for all software.
-// Downloads signing keys, verifies fingerprints, checks
-// signatures on manifests, then verifies tarball checksums.
 package installer
 
 import (
@@ -14,15 +9,9 @@ import (
 
 // ── Trusted signing keys ─────────────────────────────────
 //
-// Keys are downloaded at install time and verified by fingerprint.
-// Fingerprints are hardcoded — they don't change when keys are renewed.
+// PRIMARY key fingerprints (from gpg --list-keys after import).
+// GPG signs with subkeys but we verify the primary key exists.
 
-// bitcoinCoreSigners lists trusted Bitcoin Core builders.
-// We require 2 out of 5 valid signatures.
-// bitcoinCoreSigners lists trusted Bitcoin Core builders.
-// Fingerprints are PRIMARY key fingerprints (from gpg --list-keys),
-// not signing subkey fingerprints. GPG signs with subkeys but
-// we verify the primary key exists in our keyring after import.
 var bitcoinCoreSigners = []struct {
     name        string
     fingerprint string
@@ -55,7 +44,6 @@ var bitcoinCoreSigners = []struct {
     },
 }
 
-// lndSigner is the key used to sign LND releases (Roasbeef).
 var lndSigner = struct {
     name        string
     fingerprint string
@@ -66,7 +54,6 @@ var lndSigner = struct {
     keyURL:      "https://raw.githubusercontent.com/lightningnetwork/lnd/master/scripts/keys/roasbeef.asc",
 }
 
-// litSigner is the key used to sign LIT releases (ViktorT-11).
 var litSigner = struct {
     name        string
     fingerprint string
@@ -79,7 +66,6 @@ var litSigner = struct {
 
 // ── GPG setup ────────────────────────────────────────────
 
-// ensureGPG makes sure gpg is installed.
 func ensureGPG() error {
     if _, err := exec.LookPath("gpg"); err == nil {
         return nil
@@ -93,9 +79,8 @@ func ensureGPG() error {
 
 // ── Key import ───────────────────────────────────────────
 
-// importBitcoinCoreKeys downloads and imports Bitcoin Core builder keys.
-// Verifies each key's fingerprint after import. Continues on individual
-// failures — we only need 2/5 valid signatures later.
+// importBitcoinCoreKeys downloads and imports trusted builder keys.
+// Continues on individual failures — we only need 2/5 later.
 func importBitcoinCoreKeys() error {
     imported := 0
     for _, signer := range bitcoinCoreSigners {
@@ -103,7 +88,6 @@ func importBitcoinCoreKeys() error {
         if err := download(signer.keyURL, keyFile); err != nil {
             continue
         }
-
         cmd := exec.Command("gpg", "--batch", "--import", keyFile)
         cmd.CombinedOutput()
         os.Remove(keyFile)
@@ -112,15 +96,12 @@ func importBitcoinCoreKeys() error {
             imported++
         }
     }
-
     if imported == 0 {
         return fmt.Errorf("could not import any Bitcoin Core signing keys")
     }
-
     return nil
 }
 
-// importLNDKey downloads and imports Roasbeef's signing key.
 func importLNDKey() error {
     keyFile := "/tmp/lnd-key-roasbeef.asc"
     if err := download(lndSigner.keyURL, keyFile); err != nil {
@@ -132,21 +113,18 @@ func importLNDKey() error {
     if output, err := cmd.CombinedOutput(); err != nil {
         return fmt.Errorf("import LND key: %s: %s", err, output)
     }
-
     if !gpgHasFingerprint(lndSigner.fingerprint) {
         return fmt.Errorf("LND key fingerprint mismatch")
     }
     return nil
 }
 
-// importLITKey imports ViktorT-11's signing key from keyserver.
 func importLITKey() error {
     cmd := exec.Command("gpg", "--batch", "--keyserver",
         "hkps://keyserver.ubuntu.com", "--recv-keys", litSigner.keyID)
     if output, err := cmd.CombinedOutput(); err != nil {
         return fmt.Errorf("import LIT key: %s: %s", err, output)
     }
-
     if !gpgHasFingerprint(litSigner.fingerprint) {
         return fmt.Errorf("LIT key fingerprint mismatch")
     }
@@ -155,9 +133,9 @@ func importLITKey() error {
 
 // ── Signature verification ───────────────────────────────
 
-// verifyBitcoinCoreSigs verifies that SHA256SUMS.asc has at least
-// minValid valid signatures. Since we only import trusted keys,
-// every GOODSIG in the output is from a trusted builder.
+// verifyBitcoinCoreSigs counts GOODSIG lines in GPG output.
+// Since we only import trusted keys, every GOODSIG is from
+// a trusted builder. Requires minValid valid signatures.
 func verifyBitcoinCoreSigs(minValid int) error {
     sumsFile := "/tmp/SHA256SUMS"
     sigFile := "/tmp/SHA256SUMS.asc"
@@ -173,8 +151,6 @@ func verifyBitcoinCoreSigs(minValid int) error {
         "--status-fd", "1", sigFile, sumsFile)
     output, _ := cmd.CombinedOutput()
 
-    // Count GOODSIG lines — each represents one valid signature
-    // from a key in our keyring (which only contains trusted builders)
     validCount := strings.Count(string(output), "GOODSIG")
 
     if validCount < minValid {
@@ -182,14 +158,10 @@ func verifyBitcoinCoreSigs(minValid int) error {
             "insufficient valid signatures: got %d, need %d",
             validCount, minValid)
     }
-
     return nil
 }
 
-// verifyLNDSig verifies the LND manifest signature.
 // verifyLNDSig verifies the LND manifest GPG signature.
-// GPG checks the file content against the signature — the
-// filename on disk doesn't need to match the original.
 func verifyLNDSig(version string) error {
     manifestFile := "/tmp/manifest.txt"
     sigFile := fmt.Sprintf("/tmp/manifest-roasbeef-v%s.sig", version)
@@ -198,7 +170,6 @@ func verifyLNDSig(version string) error {
         return fmt.Errorf("LND manifest not found at %s", manifestFile)
     }
 
-    // Download the detached signature file
     sigURL := fmt.Sprintf(
         "https://github.com/lightningnetwork/lnd/releases/download/v%s/manifest-roasbeef-v%s.sig",
         version, version)
@@ -207,26 +178,19 @@ func verifyLNDSig(version string) error {
     }
     defer os.Remove(sigFile)
 
-    // GPG verifies the content of manifestFile against sigFile.
-    // The actual filename doesn't matter — only the bytes.
     cmd := exec.Command("gpg", "--batch", "--verify",
         "--status-fd", "1", sigFile, manifestFile)
     output, err := cmd.CombinedOutput()
     if err != nil {
         return fmt.Errorf("LND signature verification failed: %s", output)
     }
-
     if !strings.Contains(string(output), "GOODSIG") {
         return fmt.Errorf("LND signature invalid")
     }
-
     return nil
 }
 
-// verifyLITSig verifies the LIT manifest signature.
 // verifyLITSig verifies the LIT manifest GPG signature.
-// The manifest is saved as lit-manifest.txt but GPG only
-// checks file content, not filename, so no rename needed.
 func verifyLITSig(version string) error {
     manifestFile := "/tmp/lit-manifest.txt"
     sigFile := fmt.Sprintf("/tmp/manifest-ViktorT-11-v%s.sig", version)
@@ -235,7 +199,6 @@ func verifyLITSig(version string) error {
         return fmt.Errorf("LIT manifest not found at %s", manifestFile)
     }
 
-    // Download the detached signature file
     sigURL := fmt.Sprintf(
         "https://github.com/lightninglabs/lightning-terminal/releases/download/v%s/manifest-ViktorT-11-v%s.sig",
         version, version)
@@ -244,25 +207,20 @@ func verifyLITSig(version string) error {
     }
     defer os.Remove(sigFile)
 
-    // GPG verifies content, not filename — no rename needed
     cmd := exec.Command("gpg", "--batch", "--verify",
         "--status-fd", "1", sigFile, manifestFile)
     output, err := cmd.CombinedOutput()
     if err != nil {
         return fmt.Errorf("LIT signature verification failed: %s", output)
     }
-
     if !strings.Contains(string(output), "GOODSIG") {
         return fmt.Errorf("LIT signature invalid")
     }
-
     return nil
 }
 
 // ── Helpers ──────────────────────────────────────────────
 
-// gpgHasFingerprint checks if a key with the given fingerprint
-// exists in the GPG keyring.
 func gpgHasFingerprint(fingerprint string) bool {
     cmd := exec.Command("gpg", "--batch", "--list-keys",
         "--with-colons", fingerprint)
@@ -273,7 +231,6 @@ func gpgHasFingerprint(fingerprint string) bool {
     return strings.Contains(string(output), fingerprint)
 }
 
-// downloadBitcoinSigFile downloads SHA256SUMS.asc for Bitcoin Core.
 func downloadBitcoinSigFile(version string) error {
     url := fmt.Sprintf(
         "https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS.asc", version)

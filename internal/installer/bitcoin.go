@@ -6,19 +6,16 @@ import (
     "os/exec"
 )
 
-// downloadBitcoin fetches the Bitcoin Core tarball and SHA256SUMS.
 func downloadBitcoin(version string) error {
     filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
     url := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/%s", version, filename)
     shaURL := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS", version)
-
     if err := download(url, "/tmp/"+filename); err != nil {
         return err
     }
     return download(shaURL, "/tmp/SHA256SUMS")
 }
 
-// verifyBitcoin checks the SHA256 checksum of the downloaded tarball.
 func verifyBitcoin(version string) error {
     cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "SHA256SUMS")
     cmd.Dir = "/tmp"
@@ -28,22 +25,17 @@ func verifyBitcoin(version string) error {
     return nil
 }
 
-// extractAndInstallBitcoin extracts the tarball and copies binaries
-// to /usr/local/bin/, then cleans up temp files.
 func extractAndInstallBitcoin(version string) error {
     filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
-
     cmd := exec.Command("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp")
     if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("extract failed: %s: %s", err, output)
+        return fmt.Errorf("extract: %s: %s", err, output)
     }
-
     extractDir := fmt.Sprintf("/tmp/bitcoin-%s/bin", version)
     entries, err := os.ReadDir(extractDir)
     if err != nil {
-        return fmt.Errorf("read extracted dir: %w", err)
+        return fmt.Errorf("read dir: %w", err)
     }
-
     for _, entry := range entries {
         src := fmt.Sprintf("%s/%s", extractDir, entry.Name())
         cmd = exec.Command("install", "-m", "0755", "-o", "root", "-g", "root",
@@ -52,66 +44,72 @@ func extractAndInstallBitcoin(version string) error {
             return fmt.Errorf("install %s: %s: %s", entry.Name(), err, output)
         }
     }
-
     os.Remove("/tmp/" + filename)
     os.Remove("/tmp/SHA256SUMS")
+    os.Remove("/tmp/SHA256SUMS.asc")
     os.RemoveAll(fmt.Sprintf("/tmp/bitcoin-%s", version))
-
     return nil
 }
 
-// writeBitcoinConfig writes bitcoin.conf using cookie auth only.
 func writeBitcoinConfig(cfg *installConfig) error {
     pruneMB := cfg.pruneSize * 1000
-
-    content := fmt.Sprintf(`# Virtual Private Node — Bitcoin Core Configuration
-#
-# Network: %s
-# Prune:   %d GB
-
-# ── Global ────────────────────────────────────
+    content := fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
 %s
 prune=%d
 dbcache=512
 maxmempool=300
 disablewallet=1
-
-# Tor — route all connections through Tor
 proxy=127.0.0.1:9050
 listen=1
 listenonion=1
-`, cfg.network.Name, cfg.pruneSize, cfg.network.BitcoinFlag, pruneMB)
+`, cfg.network.Name, cfg.network.BitcoinFlag, pruneMB)
 
     if cfg.network.Name == "testnet4" {
-        content += fmt.Sprintf(`
-# ── Testnet4 ──────────────────────────────────
+        content = fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
+server=1
+%s
+prune=%d
+dbcache=512
+maxmempool=300
+disablewallet=1
+proxy=127.0.0.1:9050
+listen=1
+listenonion=1
+
 [testnet4]
 bind=127.0.0.1
 rpcbind=127.0.0.1
 rpcport=%d
 rpcallowip=127.0.0.1
-
 zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
-`, cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
+`, cfg.network.BitcoinFlag, pruneMB,
+            cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
     } else {
-        content += fmt.Sprintf(`
-# ── Mainnet ───────────────────────────────────
+        content = fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
+server=1
+prune=%d
+dbcache=512
+maxmempool=300
+disablewallet=1
+proxy=127.0.0.1:9050
+listen=1
+listenonion=1
+
 bind=127.0.0.1
 rpcbind=127.0.0.1
 rpcport=%d
 rpcallowip=127.0.0.1
-
 zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
-`, cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
+`, pruneMB,
+            cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
     }
 
     if err := os.WriteFile("/etc/bitcoin/bitcoin.conf", []byte(content), 0640); err != nil {
         return err
     }
-
     cmd := exec.Command("chown", "root:"+systemUser, "/etc/bitcoin/bitcoin.conf")
     if output, err := cmd.CombinedOutput(); err != nil {
         return fmt.Errorf("%s: %s", err, output)

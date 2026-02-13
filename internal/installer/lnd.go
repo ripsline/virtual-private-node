@@ -2,6 +2,7 @@ package installer
 
 import (
     "crypto/tls"
+    "crypto/x509"
     "fmt"
     "net/http"
     "os"
@@ -10,26 +11,25 @@ import (
     "time"
 )
 
-// downloadLND fetches the LND tarball and manifest.
 func downloadLND(version string) error {
     filename := fmt.Sprintf("lnd-linux-amd64-v%s.tar.gz", version)
     url := fmt.Sprintf("https://github.com/lightningnetwork/lnd/releases/download/v%s/%s",
         version, filename)
     manifestURL := fmt.Sprintf("https://github.com/lightningnetwork/lnd/releases/download/v%s/manifest-v%s.txt",
         version, version)
-
     if err := download(url, "/tmp/"+filename); err != nil {
         return err
     }
-    // Manifest is best-effort
-    download(manifestURL, "/tmp/manifest.txt")
+    // Hard-fail if manifest download fails
+    if err := download(manifestURL, "/tmp/manifest.txt"); err != nil {
+        return fmt.Errorf("download LND manifest: %w", err)
+    }
     return nil
 }
 
-// verifyLND checks the manifest checksum if available.
 func verifyLND(version string) error {
     if _, err := os.Stat("/tmp/manifest.txt"); err != nil {
-        return nil // no manifest, skip verification
+        return fmt.Errorf("LND manifest not found")
     }
     cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "manifest.txt")
     cmd.Dir = "/tmp"
@@ -39,15 +39,12 @@ func verifyLND(version string) error {
     return nil
 }
 
-// extractAndInstallLND extracts and installs lnd and lncli binaries.
 func extractAndInstallLND(version string) error {
     filename := fmt.Sprintf("lnd-linux-amd64-v%s.tar.gz", version)
-
     cmd := exec.Command("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp")
     if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("extract failed: %s: %s", err, output)
+        return fmt.Errorf("extract: %s: %s", err, output)
     }
-
     extractDir := fmt.Sprintf("/tmp/lnd-linux-amd64-v%s", version)
     for _, bin := range []string{"lnd", "lncli"} {
         src := fmt.Sprintf("%s/%s", extractDir, bin)
@@ -57,7 +54,6 @@ func extractAndInstallLND(version string) error {
             return fmt.Errorf("install %s: %s: %s", bin, err, output)
         }
     }
-
     os.Remove("/tmp/" + filename)
     os.Remove("/tmp/manifest.txt")
     os.RemoveAll(extractDir)
@@ -66,26 +62,19 @@ func extractAndInstallLND(version string) error {
 
 func writeLNDConfig(cfg *installConfig) error {
     restOnion := strings.TrimSpace(readFileOrDefault("/var/lib/tor/lnd-rest/hostname", ""))
-
     listenLine := "listen=localhost:9735"
     externalLine := ""
     if cfg.p2pMode == "hybrid" && cfg.publicIPv4 != "" {
         listenLine = "listen=0.0.0.0:9735"
         externalLine = fmt.Sprintf("externalhosts=%s:9735", cfg.publicIPv4)
     }
-
     tlsExtraDomain := ""
     if restOnion != "" {
         tlsExtraDomain = fmt.Sprintf("tlsextradomain=%s", restOnion)
     }
-
     cookiePath := fmt.Sprintf("/var/lib/bitcoin/%s", cfg.network.CookiePath)
 
-    content := fmt.Sprintf(`# Virtual Private Node — LND Configuration
-#
-# Network: %s
-# P2P:     %s
-
+    content := fmt.Sprintf(`# Virtual Private Node — LND
 [Application Options]
 lnddir=/var/lib/lnd
 %s
@@ -115,21 +104,14 @@ tor.control=127.0.0.1:9051
 tor.targetipaddress=127.0.0.1
 tor.v3=true
 tor.streamisolation=true
-`,
-        cfg.network.Name, cfg.p2pMode,
-        listenLine, externalLine, tlsExtraDomain,
-        cfg.network.LNDBitcoinFlag,
-        cookiePath, cfg.network.RPCPort,
-        cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort,
-    )
+`, listenLine, externalLine, tlsExtraDomain,
+        cfg.network.LNDBitcoinFlag, cookiePath,
+        cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
 
     if err := os.WriteFile("/etc/lnd/lnd.conf", []byte(content), 0640); err != nil {
         return err
     }
-    cmd := exec.Command("chown", "root:"+systemUser, "/etc/lnd/lnd.conf")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("%s: %s", err, output)
-    }
+    exec.Command("chown", "root:"+systemUser, "/etc/lnd/lnd.conf").Run()
     return nil
 }
 
@@ -176,10 +158,7 @@ func setupAutoUnlock(password string) error {
     if err := os.WriteFile(passwordFile, []byte(password), 0400); err != nil {
         return err
     }
-    cmd := exec.Command("chown", systemUser+":"+systemUser, passwordFile)
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("%s: %s", err, output)
-    }
+    exec.Command("chown", systemUser+":"+systemUser, passwordFile).Run()
 
     content := fmt.Sprintf(`[Unit]
 Description=LND Lightning Network Daemon
@@ -205,7 +184,6 @@ WantedBy=multi-user.target
     if err := os.WriteFile("/etc/systemd/system/lnd.service", []byte(content), 0644); err != nil {
         return err
     }
-
     for _, args := range [][]string{
         {"systemctl", "daemon-reload"},
         {"systemctl", "restart", "lnd"},
@@ -218,14 +196,11 @@ WantedBy=multi-user.target
     return nil
 }
 
+// waitForLND polls LND's REST endpoint with TLS cert pinning.
+// Falls back to insecure if cert doesn't exist yet (first start race).
 func waitForLND() error {
-    client := &http.Client{
-        Transport: &http.Transport{
-            TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-        },
-        Timeout: 5 * time.Second,
-    }
     for i := 0; i < 60; i++ {
+        client := buildLNDClient()
         resp, err := client.Get("https://localhost:8080/v1/state")
         if err == nil {
             resp.Body.Close()
@@ -234,4 +209,23 @@ func waitForLND() error {
         time.Sleep(2 * time.Second)
     }
     return fmt.Errorf("LND did not respond after 120 seconds")
+}
+
+// buildLNDClient creates an HTTP client that pins LND's TLS cert
+// if available, otherwise falls back to InsecureSkipVerify.
+func buildLNDClient() *http.Client {
+    tlsConfig := &tls.Config{InsecureSkipVerify: true}
+
+    certData, err := os.ReadFile("/var/lib/lnd/tls.cert")
+    if err == nil {
+        pool := x509.NewCertPool()
+        if pool.AppendCertsFromPEM(certData) {
+            tlsConfig = &tls.Config{RootCAs: pool}
+        }
+    }
+
+    return &http.Client{
+        Transport: &http.Transport{TLSClientConfig: tlsConfig},
+        Timeout:   5 * time.Second,
+    }
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 # ═══════════════════════════════════════════════════════════
 # Virtual Private Node — Bootstrap Script
@@ -53,6 +53,17 @@ echo "$ADMIN_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$ADMIN_USER
 chmod 440 /etc/sudoers.d/$ADMIN_USER
 echo "  ✓ Configured passwordless sudo"
 
+# ── Copy SSH keys if root has them ──────────────────────────
+
+if [ -f /root/.ssh/authorized_keys ]; then
+    mkdir -p /home/$ADMIN_USER/.ssh
+    cp /root/.ssh/authorized_keys /home/$ADMIN_USER/.ssh/
+    chown -R $ADMIN_USER:$ADMIN_USER /home/$ADMIN_USER/.ssh
+    chmod 700 /home/$ADMIN_USER/.ssh
+    chmod 600 /home/$ADMIN_USER/.ssh/authorized_keys
+    echo "  ✓ Copied SSH keys to $ADMIN_USER"
+fi
+
 # ── Download rlvpn binary ───────────────────────────────────
 
 ARCH=$(uname -m)
@@ -73,6 +84,13 @@ elif command -v curl &>/dev/null; then
     curl -sL -o /usr/local/bin/$BINARY_NAME "$URL"
 else
     echo "ERROR: Neither wget nor curl found."
+    exit 1
+fi
+
+# Verify download succeeded
+if [ ! -s /usr/local/bin/$BINARY_NAME ]; then
+    echo "ERROR: Download failed. Check the URL and try again."
+    rm -f /usr/local/bin/$BINARY_NAME
     exit 1
 fi
 
@@ -101,7 +119,13 @@ echo "  ✓ Disabled root SSH login"
 
 # ── Print instructions ──────────────────────────────────────
 
-SERVER_IP=$(curl -4 -s --max-time 5 ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
+if command -v curl &>/dev/null; then
+    SERVER_IP=$(curl -4 -s --max-time 5 ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
+elif command -v wget &>/dev/null; then
+    SERVER_IP=$(wget -qO- --timeout=5 ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
+else
+    SERVER_IP="YOUR_SERVER_IP"
+fi
 
 echo ""
 echo "  ═══════════════════════════════════════════════════"

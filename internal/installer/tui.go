@@ -9,46 +9,20 @@ import (
 )
 
 var (
-    tuiTitleStyle = lipgloss.NewStyle().
-            Bold(true).
+    tuiTitleStyle = lipgloss.NewStyle().Bold(true).
             Foreground(lipgloss.Color("0")).
-            Background(lipgloss.Color("15")).
-            Padding(0, 2)
-
-    tuiSectionStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("15")).
-            Bold(true)
-
-    tuiSelectedStyle = lipgloss.NewStyle().
-                Foreground(lipgloss.Color("220")).
-                Bold(true)
-
-    tuiUnselectedStyle = lipgloss.NewStyle().
-                Foreground(lipgloss.Color("250"))
-
-    tuiDimStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("243"))
-
-    tuiWarningStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("196")).
-            Bold(true)
-
-    tuiBoxStyle = lipgloss.NewStyle().
-            Border(lipgloss.RoundedBorder()).
-            BorderForeground(lipgloss.Color("245")).
-            Padding(1, 2)
-
-    tuiSummaryKeyStyle = lipgloss.NewStyle().
-                Foreground(lipgloss.Color("245")).
-                Width(16).
-                Align(lipgloss.Right)
-
-    tuiSummaryValStyle = lipgloss.NewStyle().
-                Foreground(lipgloss.Color("15")).
-                Bold(true)
-
-    tuiValueStyle = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("15"))
+            Background(lipgloss.Color("15")).Padding(0, 2)
+    tuiSectionStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Bold(true)
+    tuiSelectedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+    tuiUnselectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+    tuiDimStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+    tuiWarningStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+    tuiBoxStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
+                BorderForeground(lipgloss.Color("245")).Padding(1, 2)
+    tuiSummaryKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).
+                Width(16).Align(lipgloss.Right)
+    tuiSummaryValStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Bold(true)
+    tuiValueStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 )
 
 const tuiContentWidth = 76
@@ -88,13 +62,6 @@ func p2pQuestion() question {
     }}
 }
 
-func sshQuestion() question {
-    return question{title: "SSH Port", options: []option{
-        {label: "22", desc: "Default SSH port", value: "22"},
-        {label: "Custom", desc: "Enter a custom port after selection", value: "custom"},
-    }}
-}
-
 type tuiPhase int
 
 const (
@@ -111,22 +78,18 @@ type tuiModel struct {
     answers   []string
     phase     tuiPhase
     version   string
-    width     int
-    height    int
+    width, height int
 }
 
 type tuiResult struct {
-    network, components, pruneSize, p2pMode, sshPort string
+    network, components, pruneSize, p2pMode string
 }
 
 func newTuiModel(version string) tuiModel {
     q := buildQuestions()
-    q = append(q, sshQuestion())
     return tuiModel{
-        questions: q,
-        cursors:   make([]int, len(q)),
-        answers:   make([]string, len(q)),
-        version:   version,
+        questions: q, cursors: make([]int, len(q)),
+        answers: make([]string, len(q)), version: version,
     }
 }
 
@@ -225,10 +188,9 @@ func (m tuiModel) View() string {
     if m.width == 0 {
         return "Loading..."
     }
-    bw := iMin(m.width-4, tuiContentWidth)
+    bw := minInt(m.width-4, tuiContentWidth)
     title := tuiTitleStyle.Width(bw).Align(lipgloss.Center).
         Render(fmt.Sprintf(" Virtual Private Node v%s ", m.version))
-
     var content string
     switch m.phase {
     case phaseQuestions:
@@ -236,14 +198,12 @@ func (m tuiModel) View() string {
     case phaseSummary:
         content = m.renderSummary()
     }
-
     var footer string
     if m.phase == phaseQuestions {
         footer = tuiDimStyle.Render("  ↑↓ navigate • enter select • backspace back • q quit  ")
     } else {
         footer = tuiDimStyle.Render("  enter confirm • backspace edit • q cancel  ")
     }
-
     box := tuiBoxStyle.Width(bw).Render(content)
     full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
     return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
@@ -251,7 +211,8 @@ func (m tuiModel) View() string {
 
 func (m tuiModel) renderQuestion() string {
     var b strings.Builder
-    b.WriteString(tuiDimStyle.Render(fmt.Sprintf("Question %d of %d", m.current+1, len(m.questions))) + "\n\n")
+    b.WriteString(tuiDimStyle.Render(fmt.Sprintf("Question %d of %d",
+        m.current+1, len(m.questions))) + "\n\n")
     b.WriteString(tuiSectionStyle.Render(m.questions[m.current].title) + "\n\n")
     for i, opt := range m.questions[m.current].options {
         cur, sty := "  ", tuiUnselectedStyle
@@ -266,7 +227,8 @@ func (m tuiModel) renderQuestion() string {
     if m.current > 0 {
         b.WriteString("\n" + tuiDimStyle.Render("─────────────────────────────") + "\n")
         for i := 0; i < m.current; i++ {
-            b.WriteString(tuiDimStyle.Render(m.questions[i].title+": ") + tuiValueStyle.Render(m.answers[i]) + "\n")
+            b.WriteString(tuiDimStyle.Render(m.questions[i].title+": ") +
+                tuiValueStyle.Render(m.answers[i]) + "\n")
         }
     }
     return b.String()
@@ -278,18 +240,19 @@ func (m tuiModel) renderSummary() string {
     r := m.getResult()
     rows := []struct{ k, v string }{
         {"Network", r.network}, {"Components", r.components},
-        {"Prune", r.pruneSize + " GB"}, {"SSH Port", r.sshPort},
+        {"Prune", r.pruneSize + " GB"},
     }
     if r.components == "bitcoin+lnd" {
         mode := "Tor only"
         if r.p2pMode == "hybrid" {
             mode = "Hybrid (Tor + clearnet)"
         }
-        rows = append(rows[:3], append([]struct{ k, v string }{{"P2P Mode", mode}}, rows[3:]...)...)
+        rows = append(rows, struct{ k, v string }{"P2P Mode", mode})
     }
     var c strings.Builder
     for _, row := range rows {
-        c.WriteString(tuiSummaryKeyStyle.Render(row.k+":") + tuiSummaryValStyle.Render(" "+row.v) + "\n")
+        c.WriteString(tuiSummaryKeyStyle.Render(row.k+":") +
+            tuiSummaryValStyle.Render(" "+row.v) + "\n")
     }
     b.WriteString(tuiBoxStyle.Render(c.String()) + "\n\n")
     b.WriteString(tuiSelectedStyle.Render("Press Enter to install"))
@@ -297,7 +260,8 @@ func (m tuiModel) renderSummary() string {
 }
 
 func (m tuiModel) getResult() tuiResult {
-    r := tuiResult{network: "testnet4", components: "bitcoin+lnd", pruneSize: "25", p2pMode: "tor", sshPort: "22"}
+    r := tuiResult{network: "testnet4", components: "bitcoin+lnd",
+        pruneSize: "25", p2pMode: "tor"}
     for i, q := range m.questions {
         if i >= len(m.answers) || m.answers[i] == "" {
             continue
@@ -311,8 +275,6 @@ func (m tuiModel) getResult() tuiResult {
             r.pruneSize = m.answers[i]
         case "LND P2P Mode":
             r.p2pMode = m.answers[i]
-        case "SSH Port":
-            r.sshPort = m.answers[i]
         }
     }
     return r
@@ -335,9 +297,6 @@ func RunTUI(version string) (*installConfig, error) {
         p2pMode: r.p2pMode, sshPort: 22,
     }
     fmt.Sscanf(r.pruneSize, "%d", &cfg.pruneSize)
-    if r.sshPort != "custom" {
-        fmt.Sscanf(r.sshPort, "%d", &cfg.sshPort)
-    }
     if cfg.p2pMode == "hybrid" {
         cfg.publicIPv4 = detectPublicIP()
         if cfg.publicIPv4 == "" {
@@ -345,11 +304,4 @@ func RunTUI(version string) (*installConfig, error) {
         }
     }
     return cfg, nil
-}
-
-func iMin(a, b int) int {
-    if a < b {
-        return a
-    }
-    return b
 }

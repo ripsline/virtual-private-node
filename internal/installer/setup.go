@@ -1,16 +1,19 @@
 package installer
 
 import (
-    "bufio"
+    "context"
     "crypto/rand"
     "encoding/hex"
     "fmt"
     "os"
     "os/exec"
     "strings"
+    "time"
 
     tea "github.com/charmbracelet/bubbletea"
     "github.com/charmbracelet/lipgloss"
+    "golang.org/x/term"
+
     "github.com/ripsline/virtual-private-node/internal/config"
 )
 
@@ -19,7 +22,7 @@ const (
     lndVersion     = "0.20.0-beta"
     litVersion     = "0.16.0-alpha"
     systemUser     = "bitcoin"
-    appVersion     = "0.1.0"
+    appVersion     = "0.2.0"
 )
 
 func LitVersionStr() string { return litVersion }
@@ -56,24 +59,19 @@ type installStep struct {
     err    error
 }
 
-type stepDoneMsg struct {
-    index int
-    err   error
-}
+type stepDoneMsg struct{ index int; err error }
 
 type installModel struct {
-    steps   []installStep
-    current int
-    done    bool
-    failed  bool
-    version string
-    width   int
-    height  int
+    steps         []installStep
+    current       int
+    done, failed  bool
+    version       string
+    width, height int
 }
 
 var (
-    progTitleStyle = lipgloss.NewStyle().
-            Bold(true).Foreground(lipgloss.Color("0")).
+    progTitleStyle = lipgloss.NewStyle().Bold(true).
+            Foreground(lipgloss.Color("0")).
             Background(lipgloss.Color("15")).Padding(0, 2)
     progBoxStyle = lipgloss.NewStyle().
             Border(lipgloss.RoundedBorder()).
@@ -135,7 +133,7 @@ func (m installModel) View() string {
     if m.width == 0 {
         return "Loading..."
     }
-    bw := iMin(m.width-4, 76)
+    bw := minInt(m.width-4, 76)
     title := progTitleStyle.Width(bw).Align(lipgloss.Center).
         Render(fmt.Sprintf(" Virtual Private Node v%s ", m.version))
     var lines []string
@@ -194,7 +192,7 @@ func runInstallTUI(steps []installStep, version string) error {
     return nil
 }
 
-// ── Info box ─────────────────────────────────────────────
+// ── Info and Confirm boxes ───────────────────────────────
 
 var (
     setupBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("245")).Padding(1, 3)
@@ -210,7 +208,6 @@ type infoBoxModel struct {
 }
 
 func (m infoBoxModel) Init() tea.Cmd { return nil }
-
 func (m infoBoxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     switch msg := msg.(type) {
     case tea.WindowSizeMsg:
@@ -223,18 +220,55 @@ func (m infoBoxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     }
     return m, nil
 }
-
 func (m infoBoxModel) View() string {
     if m.width == 0 {
         return "Loading..."
     }
-    box := setupBoxStyle.Width(iMin(m.width-8, 70)).Render(m.content)
+    box := setupBoxStyle.Width(minInt(m.width-8, 70)).Render(m.content)
     return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
-
 func showInfoBox(content string) {
     p := tea.NewProgram(infoBoxModel{content: content}, tea.WithAltScreen())
     p.Run()
+}
+
+// confirmBoxModel distinguishes Enter (proceed) from backspace (cancel)
+type confirmBoxModel struct {
+    content       string
+    confirmed     bool
+    width, height int
+}
+
+func (m confirmBoxModel) Init() tea.Cmd { return nil }
+func (m confirmBoxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    case tea.KeyMsg:
+        switch msg.String() {
+        case "enter":
+            m.confirmed = true
+            return m, tea.Quit
+        case "backspace", "ctrl+c", "q":
+            m.confirmed = false
+            return m, tea.Quit
+        }
+    }
+    return m, nil
+}
+func (m confirmBoxModel) View() string {
+    if m.width == 0 {
+        return "Loading..."
+    }
+    box := setupBoxStyle.Width(minInt(m.width-8, 70)).Render(m.content)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+func showConfirmBox(content string) bool {
+    m := confirmBoxModel{content: content}
+    p := tea.NewProgram(m, tea.WithAltScreen())
+    result, _ := p.Run()
+    return result.(confirmBoxModel).confirmed
 }
 
 // ── Main install flow ────────────────────────────────────
@@ -258,11 +292,9 @@ func Run() error {
         fmt.Printf("  Warning: shell setup failed: %v\n", err)
     }
     appCfg := &config.AppConfig{
-        Network:    cfg.network.Name,
-        Components: cfg.components,
-        PruneSize:  cfg.pruneSize,
-        P2PMode:    cfg.p2pMode,
-        SSHPort:    cfg.sshPort,
+        Network: cfg.network.Name, Components: cfg.components,
+        PruneSize: cfg.pruneSize, P2PMode: cfg.p2pMode,
+        SSHPort: cfg.sshPort,
     }
     return config.Save(appCfg)
 }
@@ -305,11 +337,10 @@ func buildSteps(cfg *installConfig) []installStep {
     return steps
 }
 
-// ── Wallet creation (from dashboard Lightning card) ──────
+// ── Wallet creation ──────────────────────────────────────
 
 func RunWalletCreation(networkName string) error {
     net := NetworkConfigFromName(networkName)
-
     info := setupTitleStyle.Render("Create Your LND Wallet") + "\n\n" +
         setupTextStyle.Render("LND will ask you to:") + "\n\n" +
         setupTextStyle.Render("  1. Enter a wallet password (min 8 characters)") + "\n" +
@@ -323,25 +354,18 @@ func RunWalletCreation(networkName string) error {
         setupDimStyle.Render("Press Enter to continue...")
     showInfoBox(info)
 
-    // Clear screen for lncli
     fmt.Print("\033[2J\033[H")
-    fmt.Println()
-    fmt.Println("  ═══════════════════════════════════════════")
+    fmt.Println("\n  ═══════════════════════════════════════════")
     fmt.Println("    LND Wallet Creation")
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Println()
+    fmt.Println("  ═══════════════════════════════════════════\n")
     fmt.Println("  Waiting for LND...")
     if err := waitForLND(); err != nil {
         return err
     }
-    fmt.Println("  ✓ LND is ready")
-    fmt.Println()
+    fmt.Println("  ✓ LND is ready\n")
 
-    // Hand terminal to lncli create
     cmd := exec.Command("sudo", "-u", systemUser, "lncli",
-        "--lnddir=/var/lib/lnd",
-        "--network="+net.LNCLINetwork,
-        "create")
+        "--lnddir=/var/lib/lnd", "--network="+net.LNCLINetwork, "create")
     cmd.Stdin = os.Stdin
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
@@ -349,7 +373,6 @@ func RunWalletCreation(networkName string) error {
         return fmt.Errorf("lncli create: %w", err)
     }
 
-    // Seed confirmation — tell user to scroll up
     seedMsg := setupTitleStyle.Render("Seed Phrase Confirmation") + "\n\n" +
         setupWarnStyle.Render("Have you written down your 24-word seed phrase?") + "\n\n" +
         setupTextStyle.Render("Scroll up in your terminal to see your seed.") + "\n" +
@@ -359,20 +382,16 @@ func RunWalletCreation(networkName string) error {
         setupDimStyle.Render("Press Enter to confirm...")
     showInfoBox(seedMsg)
 
-    // Auto-unlock
     unlockMsg := setupTitleStyle.Render("Auto-Unlock Configuration") + "\n\n" +
         setupTextStyle.Render("Your wallet password will be stored so LND") + "\n" +
         setupTextStyle.Render("starts automatically after reboot.") + "\n\n" +
         setupDimStyle.Render("Press Enter to continue...")
     showInfoBox(unlockMsg)
 
-    // Password prompt in shell
     fmt.Print("\033[2J\033[H")
-    fmt.Println()
-    fmt.Println("  ═══════════════════════════════════════════")
+    fmt.Println("\n  ═══════════════════════════════════════════")
     fmt.Println("    Auto-Unlock Password")
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Println()
+    fmt.Println("  ═══════════════════════════════════════════\n")
     fmt.Print("  Re-enter your wallet password: ")
     pw := readPassword()
     fmt.Println()
@@ -389,14 +408,12 @@ func RunWalletCreation(networkName string) error {
             config.Save(appCfg)
         }
     }
-
     return nil
 }
 
-// ── LIT installation (from Software tab) ─────────────────
+// ── LIT installation ─────────────────────────────────────
 
 func RunLITInstall(cfg *config.AppConfig) error {
-    // Confirmation box
     confirmMsg := setupTitleStyle.Render("Install Lightning Terminal") + "\n\n" +
         setupTextStyle.Render("This will:") + "\n\n" +
         setupTextStyle.Render("  • Download Lightning Terminal v" + litVersion) + "\n" +
@@ -404,12 +421,15 @@ func RunLITInstall(cfg *config.AppConfig) error {
         setupTextStyle.Render("  • Restart LND") + "\n" +
         setupTextStyle.Render("  • Create Tor hidden service for LIT web UI") + "\n" +
         setupTextStyle.Render("  • Restart Tor") + "\n\n" +
-        setupDimStyle.Render("Press Enter to proceed...")
-    showInfoBox(confirmMsg)
+        setupDimStyle.Render("Enter to proceed • backspace to cancel")
+    if !showConfirmBox(confirmMsg) {
+        return nil
+    }
 
-    // Generate UI password (12 bytes = 24 hex chars)
     passBytes := make([]byte, 12)
-    rand.Read(passBytes)
+    if _, err := rand.Read(passBytes); err != nil {
+        return fmt.Errorf("generate password: %w", err)
+    }
     litPassword := hex.EncodeToString(passBytes)
 
     steps := []installStep{
@@ -422,54 +442,83 @@ func RunLITInstall(cfg *config.AppConfig) error {
             fn: func() error { return verifyLIT(litVersion) }},
         {name: "Installing Lightning Terminal",
             fn: func() error { return extractAndInstallLIT(litVersion) }},
-        {name: "Enabling RPC middleware in LND",
-            fn: enableRPCMiddleware},
+        {name: "Enabling RPC middleware in LND", fn: enableRPCMiddleware},
         {name: "Restarting LND",
             fn: func() error { return exec.Command("systemctl", "restart", "lnd").Run() }},
-        {name: "Creating LIT directories",
-            fn: createLITDirs},
+        {name: "Creating LIT directories", fn: createLITDirs},
         {name: "Creating LIT configuration",
             fn: func() error { return writeLITConfig(cfg, litPassword) }},
         {name: "Creating litd service",
             fn: func() error { return writeLITDService(systemUser) }},
-        {name: "Configuring Tor for LIT",
-            fn: addLITTorService},
-        {name: "Restarting Tor",
-            fn: restartTor},
-        {name: "Starting Lightning Terminal",
-            fn: startLITD},
+        {name: "Configuring Tor for LIT", fn: addLITTorService},
+        {name: "Restarting Tor", fn: restartTor},
+        {name: "Starting Lightning Terminal", fn: startLITD},
     }
-
     if err := runInstallTUI(steps, appVersion); err != nil {
         return err
     }
-
     cfg.LITInstalled = true
     cfg.LITPassword = litPassword
     return config.Save(cfg)
 }
 
-// ── Shell helpers ────────────────────────────────────────
+// ── Syncthing installation ───────────────────────────────
 
-func readLine(reader *bufio.Reader) string {
-    line, _ := reader.ReadString('\n')
-    return strings.TrimSpace(line)
+func RunSyncthingInstall(cfg *config.AppConfig) error {
+    confirmMsg := setupTitleStyle.Render("Install Syncthing") + "\n\n" +
+        setupTextStyle.Render("This will:") + "\n\n" +
+        setupTextStyle.Render("  • Install Syncthing from official repository") + "\n" +
+        setupTextStyle.Render("  • Create Tor hidden service for web UI") + "\n" +
+        setupTextStyle.Render("  • Auto-configure LND channel backup sync") + "\n" +
+        setupTextStyle.Render("  • Restart Tor") + "\n\n" +
+        setupDimStyle.Render("Enter to proceed • backspace to cancel")
+    if !showConfirmBox(confirmMsg) {
+        return nil
+    }
+
+    passBytes := make([]byte, 12)
+    if _, err := rand.Read(passBytes); err != nil {
+        return fmt.Errorf("generate password: %w", err)
+    }
+    syncPassword := hex.EncodeToString(passBytes)
+
+    steps := []installStep{
+        {name: "Adding Syncthing repository", fn: installSyncthingRepo},
+        {name: "Installing Syncthing", fn: installSyncthingPackage},
+        {name: "Creating Syncthing directories", fn: createSyncthingDirs},
+        {name: "Creating Syncthing service", fn: writeSyncthingService},
+        {name: "Configuring Syncthing authentication",
+            fn: func() error { return configureSyncthingAuth(syncPassword) }},
+        {name: "Configuring Tor for Syncthing", fn: addSyncthingTorService},
+        {name: "Restarting Tor", fn: restartTor},
+        {name: "Starting Syncthing", fn: startSyncthing},
+        {name: "Setting up channel backup watcher",
+            fn: func() error { return setupChannelBackupWatcher(cfg) }},
+    }
+    if err := runInstallTUI(steps, appVersion); err != nil {
+        return err
+    }
+    cfg.SyncthingInstalled = true
+    cfg.SyncthingPassword = syncPassword
+    return config.Save(cfg)
 }
 
+// ── Helpers ──────────────────────────────────────────────
+
+// readPassword uses golang.org/x/term for robust password input.
+// Terminal echo is always restored even if the process crashes.
 func readPassword() string {
-    sttyOff := exec.Command("stty", "-echo")
-    sttyOff.Stdin = os.Stdin
-    sttyOff.Run()
-    reader := bufio.NewReader(os.Stdin)
-    password, _ := reader.ReadString('\n')
-    sttyOn := exec.Command("stty", "echo")
-    sttyOn.Stdin = os.Stdin
-    sttyOn.Run()
-    return strings.TrimSpace(password)
+    pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+    if err != nil {
+        return ""
+    }
+    return string(pw)
 }
 
 func detectPublicIP() string {
-    cmd := exec.Command("curl", "-4", "-s", "--max-time", "5", "ifconfig.me")
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    cmd := exec.CommandContext(ctx, "curl", "-4", "-s", "--max-time", "5", "ifconfig.me")
     output, err := cmd.CombinedOutput()
     if err != nil {
         return ""
@@ -490,14 +539,11 @@ func readFileOrDefault(path, def string) string {
 }
 
 func setupShellEnvironment(cfg *installConfig) error {
-    // Bitcoin-cli needs the network flag for testnet4
     btcNetFlag := ""
     if cfg.network.Name == "testnet4" {
         btcNetFlag = "\n        -testnet4 \\"
     }
 
-    // LND wrapper with all flags baked in (env vars don't
-    // survive sudo, so we pass flags directly)
     lndBlock := ""
     if cfg.components == "bitcoin+lnd" {
         lndNetFlag := ""
@@ -505,7 +551,6 @@ func setupShellEnvironment(cfg *installConfig) error {
             lndNetFlag = fmt.Sprintf("\n        --network=%s \\",
                 cfg.network.LNCLINetwork)
         }
-
         lndBlock = fmt.Sprintf(`
 lncli() {
     sudo -u bitcoin /usr/local/bin/lncli \

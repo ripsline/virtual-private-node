@@ -20,13 +20,16 @@ func downloadLIT(version string) error {
     if err := download(url, "/tmp/"+filename); err != nil {
         return err
     }
-    download(manifestURL, "/tmp/lit-manifest.txt")
+    // Hard-fail if manifest download fails
+    if err := download(manifestURL, "/tmp/lit-manifest.txt"); err != nil {
+        return fmt.Errorf("download LIT manifest: %w", err)
+    }
     return nil
 }
 
 func verifyLIT(version string) error {
     if _, err := os.Stat("/tmp/lit-manifest.txt"); err != nil {
-        return nil
+        return fmt.Errorf("LIT manifest not found")
     }
     cmd := exec.Command("sha256sum", "--ignore-missing",
         "--check", "lit-manifest.txt")
@@ -55,8 +58,6 @@ func extractAndInstallLIT(version string) error {
     return nil
 }
 
-// createLITDirs creates config and data directories for LIT
-// with proper ownership for the bitcoin user.
 func createLITDirs() error {
     dirs := []struct {
         path  string
@@ -70,8 +71,7 @@ func createLITDirs() error {
         if err := os.MkdirAll(d.path, d.mode); err != nil {
             return err
         }
-        cmd := exec.Command("chown", d.owner, d.path)
-        if output, err := cmd.CombinedOutput(); err != nil {
+        if output, err := exec.Command("chown", d.owner, d.path).CombinedOutput(); err != nil {
             return fmt.Errorf("chown %s: %s: %s", d.path, err, output)
         }
         os.Chmod(d.path, d.mode)
@@ -112,7 +112,6 @@ func writeLITConfig(cfg *config.AppConfig, uiPassword string) error {
     }
     macaroonPath := fmt.Sprintf(
         "/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon", network)
-
     content := fmt.Sprintf(`# Virtual Private Node — Lightning Terminal
 uipassword=%s
 lnd-mode=remote
@@ -128,7 +127,6 @@ loop-mode=disable
 pool-mode=disable
 taproot-assets-mode=disable
 
-# Disable autopilot (not needed for basic Terminal UI)
 autopilot.disable=true
 
 httpslisten=127.0.0.1:8443

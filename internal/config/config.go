@@ -9,16 +9,16 @@ const configDir = "/etc/rlvpn"
 const configPath = "/etc/rlvpn/config.json"
 
 type AppConfig struct {
-    Network              string `json:"network"`
-    Components           string `json:"components"`
-    PruneSize            int    `json:"prune_size"`
-    P2PMode              string `json:"p2p_mode"`
-    AutoUnlock           bool   `json:"auto_unlock"`
-    SSHPort              int    `json:"ssh_port"`
-    LITInstalled         bool   `json:"lit_installed"`
-    LITPassword          string `json:"lit_password,omitempty"`
-    SyncthingInstalled   bool   `json:"syncthing_installed"`
-    SyncthingPassword    string `json:"syncthing_password,omitempty"`
+    Network            string `json:"network"`
+    Components         string `json:"components"`
+    PruneSize          int    `json:"prune_size"`
+    P2PMode            string `json:"p2p_mode"`
+    AutoUnlock         bool   `json:"auto_unlock"`
+    SSHPort            int    `json:"ssh_port"`
+    LITInstalled       bool   `json:"lit_installed"`
+    LITPassword        string `json:"lit_password,omitempty"`
+    SyncthingInstalled bool   `json:"syncthing_installed"`
+    SyncthingPassword  string `json:"syncthing_password,omitempty"`
 }
 
 func Default() *AppConfig {

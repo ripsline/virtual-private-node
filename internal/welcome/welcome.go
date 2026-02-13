@@ -1,12 +1,15 @@
 package welcome
 
 import (
+    "context"
+    "encoding/base64"
     "encoding/hex"
     "fmt"
     "os"
     "os/exec"
     "strconv"
     "strings"
+    "time"
 
     tea "github.com/charmbracelet/bubbletea"
     "github.com/charmbracelet/lipgloss"
@@ -54,6 +57,8 @@ const (
     wBoxHeight    = 20
 )
 
+// ── Enums ────────────────────────────────────────────────
+
 type wTab int
 
 const (
@@ -72,6 +77,7 @@ const (
     svSparrow
     svMacaroon
     svQR
+    svFullURL
     svWalletCreate
     svLITInstall
     svSyncthingInstall
@@ -98,12 +104,9 @@ const (
     logSelSyncthing
 )
 
-// svcAction is used when acting on services from within the card
-type svcAction int
+type svcActionDoneMsg struct{}
 
-const (
-    svcActNone svcAction = iota
-)
+// ── Model ────────────────────────────────────────────────
 
 type Model struct {
     cfg          *config.AppConfig
@@ -111,11 +114,12 @@ type Model struct {
     activeTab    wTab
     subview      wSubview
     dashCard     cardPos
-    cardActive   bool         // true when "inside" a card
-    svcCursor    int          // cursor within services card
-    svcConfirm   string       // "r", "s", or "a" when confirming an action
+    cardActive   bool
+    svcCursor    int
+    svcConfirm   string
     logSel       logSelection
     pairingFocus int
+    urlTarget    string
     width        int
     height       int
     shellAction  wSubview
@@ -129,6 +133,7 @@ func NewModel(cfg *config.AppConfig, version string) Model {
     }
 }
 
+// Show launches the welcome TUI. Re-launches after shell actions.
 func Show(cfg *config.AppConfig, version string) {
     for {
         m := NewModel(cfg, version)
@@ -169,9 +174,8 @@ func Show(cfg *config.AppConfig, version string) {
 
 func (m Model) Init() tea.Cmd { return nil }
 
-// svcCount returns how many services are shown
 func (m Model) svcCount() int {
-    n := 2 // tor + bitcoind
+    n := 2
     if m.cfg.HasLND() {
         n++
     }
@@ -201,6 +205,8 @@ func (m Model) svcName(i int) string {
     return ""
 }
 
+// ── Update ───────────────────────────────────────────────
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     switch msg := msg.(type) {
     case tea.WindowSizeMsg:
@@ -209,13 +215,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case tea.KeyMsg:
         return m.handleKey(msg)
     case svcActionDoneMsg:
-        // Service action completed, just re-render
         return m, nil
     }
     return m, nil
 }
-
-type svcActionDoneMsg struct{}
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
     key := msg.String()
@@ -229,6 +232,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
             switch m.subview {
             case svMacaroon, svQR:
                 m.subview = svZeus
+            case svFullURL:
+                m.subview = svNone
             default:
                 m.subview = svNone
             }
@@ -242,6 +247,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
             if m.subview == svZeus {
                 m.subview = svQR
                 return m, nil
+            }
+        case "u":
+            if m.subview == svLightning {
+                litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
+                if litOnion != "" {
+                    m.urlTarget = "https://" + litOnion + ":8443"
+                    m.subview = svFullURL
+                    return m, nil
+                }
             }
         }
         return m, nil
@@ -270,7 +284,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
         m.activeTab = tabLogs
     case "4":
         m.activeTab = tabSoftware
-
     case "up", "k":
         m = m.navUp()
     case "down", "j":
@@ -279,7 +292,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
         m = m.navLeft()
     case "right", "l":
         m = m.navRight()
-
     case "enter":
         return m.handleEnter()
     }
@@ -290,13 +302,13 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
     switch key {
     case "backspace":
         m.cardActive = false
+        m.svcConfirm = ""
         return m, nil
     case "q":
         return m, tea.Quit
     }
 
     if m.dashCard == cardServices {
-        // If confirming an action, handle y/n
         if m.svcConfirm != "" {
             switch key {
             case "y":
@@ -312,7 +324,6 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
                 return m, nil
             }
         }
-
         switch key {
         case "up", "k":
             if m.svcCursor > 0 {
@@ -324,19 +335,15 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
             }
         case "r":
             m.svcConfirm = "restart"
-            return m, nil
         case "s":
             m.svcConfirm = "stop"
-            return m, nil
         case "a":
             m.svcConfirm = "start"
-            return m, nil
         }
     }
 
     if m.dashCard == cardSystem {
-        switch key {
-        case "u":
+        if key == "u" {
             m.shellAction = svSystemUpdate
             return m, tea.Quit
         }
@@ -444,14 +451,24 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
         return m, tea.Quit
     case tabSoftware:
         if m.pairingFocus == 0 {
-            // Syncthing (left card)
-            if m.cfg.HasLND() && m.cfg.WalletExists() && !m.cfg.SyncthingInstalled {
+            if m.cfg.SyncthingInstalled {
+                syncOnion := readOnion("/var/lib/tor/syncthing/hostname")
+                if syncOnion != "" {
+                    m.urlTarget = "http://" + syncOnion + ":8384"
+                    m.subview = svFullURL
+                }
+            } else if m.cfg.HasLND() && m.cfg.WalletExists() {
                 m.shellAction = svSyncthingInstall
                 return m, tea.Quit
             }
         } else {
-            // LIT (right card)
-            if m.cfg.HasLND() && m.cfg.WalletExists() && !m.cfg.LITInstalled {
+            if m.cfg.LITInstalled {
+                litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
+                if litOnion != "" {
+                    m.urlTarget = "https://" + litOnion + ":8443"
+                    m.subview = svFullURL
+                }
+            } else if m.cfg.HasLND() && m.cfg.WalletExists() {
                 m.shellAction = svLITInstall
                 return m, tea.Quit
             }
@@ -459,6 +476,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
     }
     return m, nil
 }
+
+// ── Main View ────────────────────────────────────────────
 
 func (m Model) View() string {
     if m.width == 0 {
@@ -475,6 +494,8 @@ func (m Model) View() string {
         return m.viewMacaroon()
     case svQR:
         return m.viewQR()
+    case svFullURL:
+        return m.viewFullURL()
     }
 
     bw := wMin(m.width-4, wContentWidth)
@@ -494,27 +515,37 @@ func (m Model) View() string {
         Render(fmt.Sprintf(" Virtual Private Node v%s ", m.version))
     tabs := m.viewTabs(bw)
     footer := m.viewFooter()
-    body := lipgloss.JoinVertical(lipgloss.Center, "", title, "", tabs, "", content)
+    body := lipgloss.JoinVertical(lipgloss.Center,
+        "", title, "", tabs, "", content)
     gap := m.height - lipgloss.Height(body) - 2
     if gap < 0 {
         gap = 0
     }
-    full := lipgloss.JoinVertical(lipgloss.Center, body, strings.Repeat("\n", gap), footer)
-    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, full)
+    full := lipgloss.JoinVertical(lipgloss.Center,
+        body, strings.Repeat("\n", gap), footer)
+    return lipgloss.Place(m.width, m.height,
+        lipgloss.Center, lipgloss.Top, full)
 }
 
 func (m Model) viewTabs(tw int) string {
     tabs := []struct {
         n string
         t wTab
-    }{{"Dashboard", tabDashboard}, {"Pairing", tabPairing}, {"Logs", tabLogs}, {"Software", tabSoftware}}
+    }{
+        {"Dashboard", tabDashboard},
+        {"Wallet Pairing", tabPairing},
+        {"Logs", tabLogs},
+        {"Additional Software", tabSoftware},
+    }
     w := tw / len(tabs)
     var out []string
     for _, t := range tabs {
         if t.t == m.activeTab {
-            out = append(out, wActiveTabStyle.Width(w).Align(lipgloss.Center).Render(t.n))
+            out = append(out, wActiveTabStyle.Width(w).
+                Align(lipgloss.Center).Render(t.n))
         } else {
-            out = append(out, wInactiveTabStyle.Width(w).Align(lipgloss.Center).Render(t.n))
+            out = append(out, wInactiveTabStyle.Width(w).
+                Align(lipgloss.Center).Render(t.n))
         }
     }
     return lipgloss.JoinHorizontal(lipgloss.Top, out...)
@@ -523,26 +554,32 @@ func (m Model) viewTabs(tw int) string {
 func (m Model) viewFooter() string {
     if m.cardActive {
         if m.dashCard == cardServices {
-            return wFooterStyle.Render("  ↑↓ select • [r]estart [s]top [a]start • backspace back • q quit  ")
+            return wFooterStyle.Render(
+                "  ↑↓ select • [r]estart [s]top [a]start • backspace back • q quit  ")
         }
         if m.dashCard == cardSystem {
-            return wFooterStyle.Render("  [u]pdate system • backspace back • q quit  ")
+            return wFooterStyle.Render(
+                "  [u]pdate system • backspace back • q quit  ")
         }
     }
     switch m.activeTab {
     case tabDashboard:
-        return wFooterStyle.Render("  ↑↓←→ navigate • enter select • tab switch • q quit  ")
+        return wFooterStyle.Render(
+            "  ↑↓←→ navigate • enter select • tab switch • q quit  ")
     case tabPairing:
-        return wFooterStyle.Render("  ←→ select • enter open • tab switch • q quit  ")
+        return wFooterStyle.Render(
+            "  ←→ select • enter open • tab switch • q quit  ")
     case tabLogs:
-        return wFooterStyle.Render("  ↑↓ select • enter view • tab switch • q quit  ")
+        return wFooterStyle.Render(
+            "  ↑↓ select • enter view • tab switch • q quit  ")
     case tabSoftware:
-        return wFooterStyle.Render("  enter install • tab switch • q quit  ")
+        return wFooterStyle.Render(
+            "  ←→ select • enter install/view • tab switch • q quit  ")
     }
     return ""
 }
 
-// ── Dashboard — four product cards in 2x2 grid ──────────
+// ── Dashboard — four product cards ───────────────────────
 
 func (m Model) viewDashboard(bw int) string {
     halfW := (bw - 4) / 2
@@ -555,7 +592,6 @@ func (m Model) viewDashboard(bw int) string {
 
     top := lipgloss.JoinHorizontal(lipgloss.Top, svc, "  ", sys)
     bot := lipgloss.JoinHorizontal(lipgloss.Top, btc, "  ", ln)
-
     return lipgloss.JoinVertical(lipgloss.Left, top, "", bot)
 }
 
@@ -564,9 +600,6 @@ func (m Model) getBorder(pos cardPos, enabled bool) lipgloss.Style {
         return wGrayedBorder
     }
     if m.activeTab == tabDashboard && m.dashCard == pos {
-        if m.cardActive {
-            return wSelectedBorder
-        }
         return wSelectedBorder
     }
     return wNormalBorder
@@ -584,6 +617,9 @@ func (m Model) cardServicesView(w, h int) string {
     if m.cfg.LITInstalled {
         names = append(names, "litd")
     }
+    if m.cfg.SyncthingInstalled {
+        names = append(names, "syncthing")
+    }
 
     for i, name := range names {
         dot := wRedDotStyle.Render("●")
@@ -591,7 +627,6 @@ func (m Model) cardServicesView(w, h int) string {
         if cmd.Run() == nil {
             dot = wGreenDotStyle.Render("●")
         }
-
         prefix := "  "
         style := wValueStyle
         if m.cardActive && m.dashCard == cardServices && m.svcCursor == i {
@@ -612,9 +647,8 @@ func (m Model) cardServicesView(w, h int) string {
         }
     }
 
-    content := padLines(lines, h)
-    border := m.getBorder(cardServices, true)
-    return border.Width(w).Padding(0, 1).Render(content)
+    return m.getBorder(cardServices, true).Width(w).Padding(0, 1).
+        Render(padLines(lines, h))
 }
 
 func (m Model) cardSystemView(w, h int) string {
@@ -625,14 +659,11 @@ func (m Model) cardSystemView(w, h int) string {
     total, used, pct := diskUsage("/")
     lines = append(lines, wLabelStyle.Render("Disk: ")+
         wValueStyle.Render(fmt.Sprintf("%s / %s (%s)", used, total, pct)))
-
     ramT, ramU, ramP := memUsage()
     lines = append(lines, wLabelStyle.Render("RAM:  ")+
         wValueStyle.Render(fmt.Sprintf("%s / %s (%s)", ramU, ramT, ramP)))
-
     btcSize := dirSize("/var/lib/bitcoin")
     lines = append(lines, wLabelStyle.Render("Bitcoin: ")+wValueStyle.Render(btcSize))
-
     if m.cfg.HasLND() {
         lndSize := dirSize("/var/lib/lnd")
         lines = append(lines, wLabelStyle.Render("LND: ")+wValueStyle.Render(lndSize))
@@ -643,9 +674,8 @@ func (m Model) cardSystemView(w, h int) string {
         lines = append(lines, wActionStyle.Render("[u]pdate packages"))
     }
 
-    content := padLines(lines, h)
-    border := m.getBorder(cardSystem, true)
-    return border.Width(w).Padding(0, 1).Render(content)
+    return m.getBorder(cardSystem, true).Width(w).Padding(0, 1).
+        Render(padLines(lines, h))
 }
 
 func (m Model) cardBitcoinView(w, h int) string {
@@ -653,9 +683,10 @@ func (m Model) cardBitcoinView(w, h int) string {
     lines = append(lines, wBitcoinStyle.Render("₿ Bitcoin"))
     lines = append(lines, "")
 
-    cmd := exec.Command("sudo", "-u", "bitcoin", "bitcoin-cli",
-        "-datadir=/var/lib/bitcoin",
-        "-conf=/etc/bitcoin/bitcoin.conf",
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    cmd := exec.CommandContext(ctx, "sudo", "-u", "bitcoin", "bitcoin-cli",
+        "-datadir=/var/lib/bitcoin", "-conf=/etc/bitcoin/bitcoin.conf",
         "getblockchaininfo")
     output, err := cmd.CombinedOutput()
     if err != nil {
@@ -665,7 +696,6 @@ func (m Model) cardBitcoinView(w, h int) string {
         blocks := extractJSON(info, "blocks")
         headers := extractJSON(info, "headers")
         ibd := strings.Contains(info, `"initialblockdownload": true`)
-
         if ibd {
             lines = append(lines, wLabelStyle.Render("Sync: ")+
                 wWarnStyle.Render("⟳ syncing"))
@@ -688,14 +718,12 @@ func (m Model) cardBitcoinView(w, h int) string {
             wValueStyle.Render(m.cfg.Network))
     }
 
-    content := padLines(lines, h)
-    border := m.getBorder(cardBitcoin, true)
-    return border.Width(w).Padding(0, 1).Render(content)
+    return m.getBorder(cardBitcoin, true).Width(w).Padding(0, 1).
+        Render(padLines(lines, h))
 }
 
 func (m Model) cardLightningView(w, h int) string {
     hasLND := m.cfg.HasLND()
-
     var lines []string
     if hasLND {
         lines = append(lines, wLightningStyle.Render("⚡ Lightning"))
@@ -706,14 +734,11 @@ func (m Model) cardLightningView(w, h int) string {
 
     if !hasLND {
         lines = append(lines, wGrayedStyle.Render("LND not installed"))
-        lines = append(lines, "")
-        lines = append(lines, wGrayedStyle.Render("Install Bitcoin Core + LND"))
-        lines = append(lines, wGrayedStyle.Render("to enable Lightning"))
     } else if !m.cfg.WalletExists() {
         lines = append(lines, wLabelStyle.Render("Wallet: ")+
             wWarningStyle.Render("not created"))
         lines = append(lines, "")
-        lines = append(lines, wActionStyle.Render("Select to create wallet ▸"))
+        lines = append(lines, wActionStyle.Render("Select to create ▸"))
     } else {
         lines = append(lines, wLabelStyle.Render("Wallet: ")+
             wGoodStyle.Render("created"))
@@ -725,20 +750,17 @@ func (m Model) cardLightningView(w, h int) string {
         lines = append(lines, wActionStyle.Render("Select for details ▸"))
     }
 
-    content := padLines(lines, h)
-    border := m.getBorder(cardLightning, hasLND)
-    return border.Width(w).Padding(0, 1).Render(content)
+    return m.getBorder(cardLightning, hasLND).Width(w).Padding(0, 1).
+        Render(padLines(lines, h))
 }
 
-// ── Lightning detail screen ──────────────────────────────
+// ── Lightning detail ─────────────────────────────────────
 
 func (m Model) viewLightning() string {
     bw := wMin(m.width-4, wContentWidth)
     var lines []string
-
     lines = append(lines, wLightningStyle.Render("⚡ Lightning Node Details"))
     lines = append(lines, "")
-
     lines = append(lines, wHeaderStyle.Render("Wallet"))
     lines = append(lines, "")
 
@@ -749,7 +771,6 @@ func (m Model) viewLightning() string {
             lines = append(lines, "  "+wLabelStyle.Render("Auto-unlock: ")+
                 wGoodStyle.Render("enabled"))
         }
-
         balance := getLNDBalance(m.cfg)
         if balance != "" {
             lines = append(lines, "  "+wLabelStyle.Render("Balance: ")+
@@ -773,11 +794,8 @@ func (m Model) viewLightning() string {
     lines = append(lines, "")
     lines = append(lines, wHeaderStyle.Render("Lightning Terminal"))
     lines = append(lines, "")
-
     if m.cfg.LITInstalled {
-        lines = append(lines, "  "+wLabelStyle.Render("Status: ")+
-            wGoodStyle.Render("installed"))
-
+        lines = append(lines, "  "+wGoodStyle.Render("Installed"))
         litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
         if litOnion != "" {
             lines = append(lines, "")
@@ -786,14 +804,9 @@ func (m Model) viewLightning() string {
             lines = append(lines, "  "+wLabelStyle.Render("Port: ")+
                 wMonoStyle.Render("8443"))
             lines = append(lines, "")
-            lines = append(lines, "  "+wDimStyle.Render(
-                "In Tor Browser: https://ADDRESS:PORT"))
-            lines = append(lines, "  "+wDimStyle.Render(
-                "Your browser will show a security warning."))
-            lines = append(lines, "  "+wDimStyle.Render(
-                "This is expected — click Advanced → Accept Risk and Continue."))
-            lines = append(lines, "  "+wDimStyle.Render(
-                "The connection is encrypted by Tor."))
+            lines = append(lines, "  "+wActionStyle.Render("[u] view full URL to copy"))
+            lines = append(lines, "")
+            lines = append(lines, "  "+wDimStyle.Render("Open in Tor Browser. Accept security warning."))
         }
         if m.cfg.LITPassword != "" {
             lines = append(lines, "")
@@ -801,29 +814,35 @@ func (m Model) viewLightning() string {
             lines = append(lines, "  "+wMonoStyle.Render(m.cfg.LITPassword))
         }
     } else {
-        lines = append(lines, "  "+wDimStyle.Render("Not installed"))
-        lines = append(lines, "  "+wDimStyle.Render("Install from the Software tab"))
+        lines = append(lines, "  "+wDimStyle.Render("Not installed — use Additional Software tab"))
     }
 
     content := strings.Join(lines, "\n")
     box := wOuterBox.Width(bw).Padding(1, 2).Render(content)
     title := wTitleStyle.Width(bw).Align(lipgloss.Center).
         Render(" Lightning Details ")
-    footer := wFooterStyle.Render("  backspace back • q quit  ")
-
-    full := lipgloss.JoinVertical(lipgloss.Center,
-        "", title, "", box, "", footer)
-    return lipgloss.Place(m.width, m.height,
-        lipgloss.Center, lipgloss.Top, full)
+    footer := wFooterStyle.Render("  u full URL • backspace back • q quit  ")
+    full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, full)
 }
 
-// ── Pairing tab — side by side cards ─────────────────────
+// ── Full URL view ────────────────────────────────────────
+
+func (m Model) viewFullURL() string {
+    title := wHeaderStyle.Render("Full URL — Copy and paste into Tor Browser")
+    hint := wDimStyle.Render("Select and copy. Press backspace to go back.")
+    content := lipgloss.JoinVertical(lipgloss.Left,
+        "", title, "", hint, "", m.urlTarget, "")
+    return lipgloss.Place(m.width, m.height,
+        lipgloss.Center, lipgloss.Center, content)
+}
+
+// ── Pairing tab ──────────────────────────────────────────
 
 func (m Model) viewPairing(bw int) string {
     halfW := (bw - 4) / 2
     cardH := wBoxHeight
 
-    // Zeus
     var zeusLines []string
     if m.cfg.HasLND() {
         restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
@@ -834,8 +853,7 @@ func (m Model) viewPairing(bw int) string {
         zeusLines = []string{
             wLightningStyle.Render("⚡ Zeus Wallet"), "",
             wDimStyle.Render("LND REST over Tor"), "",
-            status, "",
-            wActionStyle.Render("Select for setup ▸"),
+            status, "", wActionStyle.Render("Select for setup ▸"),
         }
     } else {
         zeusLines = []string{
@@ -843,18 +861,16 @@ func (m Model) viewPairing(bw int) string {
             wGrayedStyle.Render("LND not installed"),
         }
     }
-
-    zeusContent := padLines(zeusLines, cardH)
     zBorder := wNormalBorder
     if m.pairingFocus == 0 {
-        zBorder = wSelectedBorder
-        if !m.cfg.HasLND() {
+        if m.cfg.HasLND() {
+            zBorder = wSelectedBorder
+        } else {
             zBorder = wGrayedBorder
         }
     }
-    zeusCard := zBorder.Width(halfW).Padding(1, 2).Render(zeusContent)
+    zeusCard := zBorder.Width(halfW).Padding(1, 2).Render(padLines(zeusLines, cardH))
 
-    // Sparrow
     btcRPC := readOnion("/var/lib/tor/bitcoin-rpc/hostname")
     sStatus := wGreenDotStyle.Render("●") + " ready"
     if btcRPC == "" {
@@ -863,110 +879,71 @@ func (m Model) viewPairing(bw int) string {
     sparrowLines := []string{
         wHeaderStyle.Render("Sparrow Wallet"), "",
         wDimStyle.Render("Bitcoin Core RPC / Tor"), "",
-        sStatus, "",
-        wActionStyle.Render("Select for setup ▸"),
+        sStatus, "", wActionStyle.Render("Select for setup ▸"),
     }
-    sparrowContent := padLines(sparrowLines, cardH)
     sBorder := wNormalBorder
     if m.pairingFocus == 1 {
         sBorder = wSelectedBorder
     }
-    sparrowCard := sBorder.Width(halfW).Padding(1, 2).Render(sparrowContent)
+    sparrowCard := sBorder.Width(halfW).Padding(1, 2).Render(padLines(sparrowLines, cardH))
 
     return lipgloss.JoinHorizontal(lipgloss.Top, zeusCard, "  ", sparrowCard)
 }
 
-// ── Zeus detail screen ───────────────────────────────────
+// ── Zeus / Sparrow / Macaroon / QR screens ───────────────
 
 func (m Model) viewZeus() string {
     bw := wMin(m.width-4, wContentWidth)
     var lines []string
-
     lines = append(lines, wLightningStyle.Render("⚡ Zeus Wallet — LND REST over Tor"))
     lines = append(lines, "")
-
     restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
     if restOnion == "" {
-        lines = append(lines, wWarnStyle.Render("LND REST onion not available."))
+        lines = append(lines, wWarnStyle.Render("Not available yet."))
     } else {
-        lines = append(lines, wHeaderStyle.Render("Connection Details"))
-        lines = append(lines, "")
-        lines = append(lines, "  "+wLabelStyle.Render("Type: ")+
-            wMonoStyle.Render("LND (REST)"))
-        lines = append(lines, "  "+wLabelStyle.Render("Port: ")+
-            wMonoStyle.Render("8080"))
+        lines = append(lines, "  "+wLabelStyle.Render("Type: ")+wMonoStyle.Render("LND (REST)"))
+        lines = append(lines, "  "+wLabelStyle.Render("Port: ")+wMonoStyle.Render("8080"))
         lines = append(lines, "")
         lines = append(lines, "  "+wLabelStyle.Render("Host:"))
         lines = append(lines, "  "+wMonoStyle.Render(restOnion))
         lines = append(lines, "")
-
         mac := readMacaroonHex(m.cfg)
         if mac != "" {
-            preview := mac
-            if len(preview) > 40 {
-                preview = preview[:40] + "..."
-            }
+            preview := mac[:wMin(40, len(mac))] + "..."
             lines = append(lines, "  "+wLabelStyle.Render("Macaroon:"))
             lines = append(lines, "  "+wMonoStyle.Render(preview))
             lines = append(lines, "")
-            lines = append(lines, "  "+wActionStyle.Render(
-                "[m] full macaroon    [r] QR code"))
-        } else {
-            lines = append(lines, "  "+wWarningStyle.Render(
-                "Macaroon not available. Create wallet first."))
+            lines = append(lines, "  "+wActionStyle.Render("[m] full macaroon    [r] QR code"))
         }
     }
-
     lines = append(lines, "")
-    lines = append(lines, wDimStyle.Render("Steps:"))
     lines = append(lines, wDimStyle.Render("1. Install Zeus, enable Tor"))
     lines = append(lines, wDimStyle.Render("2. Scan QR or add manually"))
     lines = append(lines, wDimStyle.Render("3. Paste host, port, macaroon"))
 
-    content := strings.Join(lines, "\n")
-    box := wOuterBox.Width(bw).Padding(1, 2).Render(content)
-    title := wTitleStyle.Width(bw).Align(lipgloss.Center).
-        Render(" Zeus Wallet Setup ")
-    footer := wFooterStyle.Render(
-        "  m macaroon • r QR • backspace back • q quit  ")
-
-    full := lipgloss.JoinVertical(lipgloss.Center,
-        "", title, "", box, "", footer)
-    return lipgloss.Place(m.width, m.height,
-        lipgloss.Center, lipgloss.Top, full)
+    box := wOuterBox.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+    title := wTitleStyle.Width(bw).Align(lipgloss.Center).Render(" Zeus Wallet Setup ")
+    footer := wFooterStyle.Render("  m macaroon • r QR • backspace back • q quit  ")
+    full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, full)
 }
-
-// ── Sparrow detail screen ────────────────────────────────
 
 func (m Model) viewSparrow() string {
     bw := wMin(m.width-4, wContentWidth)
     var lines []string
-
-    lines = append(lines, wHeaderStyle.Render(
-        "Sparrow Wallet — Bitcoin Core RPC over Tor"))
+    lines = append(lines, wHeaderStyle.Render("Sparrow — Bitcoin Core RPC over Tor"))
     lines = append(lines, "")
-    lines = append(lines, wWarningStyle.Render(
-        "WARNING: Cookie changes on restart."))
-    lines = append(lines, wWarningStyle.Render(
-        "Reconnect Sparrow after any restart."))
+    lines = append(lines, wWarningStyle.Render("WARNING: Cookie changes on restart."))
     lines = append(lines, "")
-
     btcRPC := readOnion("/var/lib/tor/bitcoin-rpc/hostname")
-    if btcRPC == "" {
-        lines = append(lines, wWarnStyle.Render("Bitcoin RPC onion not available."))
-    } else {
+    if btcRPC != "" {
         port := "8332"
         if !m.cfg.IsMainnet() {
             port = "48332"
         }
         cookie := readCookieValue(m.cfg)
-
-        lines = append(lines, wHeaderStyle.Render("Connection Details"))
-        lines = append(lines, "")
-        lines = append(lines, "  "+wLabelStyle.Render("Port: ")+
-            wMonoStyle.Render(port))
-        lines = append(lines, "  "+wLabelStyle.Render("User: ")+
-            wMonoStyle.Render("__cookie__"))
+        lines = append(lines, "  "+wLabelStyle.Render("Port: ")+wMonoStyle.Render(port))
+        lines = append(lines, "  "+wLabelStyle.Render("User: ")+wMonoStyle.Render("__cookie__"))
         lines = append(lines, "")
         lines = append(lines, "  "+wLabelStyle.Render("URL:"))
         lines = append(lines, "  "+wMonoStyle.Render(btcRPC))
@@ -974,126 +951,84 @@ func (m Model) viewSparrow() string {
         if cookie != "" {
             lines = append(lines, "  "+wLabelStyle.Render("Password:"))
             lines = append(lines, "  "+wMonoStyle.Render(cookie))
-        } else {
-            lines = append(lines, "  "+wLabelStyle.Render("Password: ")+
-                wWarnStyle.Render("not available"))
         }
     }
-
     lines = append(lines, "")
-    lines = append(lines, wDimStyle.Render("Steps:"))
     lines = append(lines, wDimStyle.Render("1. Sparrow → Preferences → Server"))
-    lines = append(lines, wDimStyle.Render("2. Bitcoin Core tab"))
-    lines = append(lines, wDimStyle.Render("3. Enter URL, port, user, password"))
-    lines = append(lines, wDimStyle.Render("4. Test Connection"))
-    lines = append(lines, wDimStyle.Render("5. Tor locally: SOCKS5 localhost:9050"))
+    lines = append(lines, wDimStyle.Render("2. Bitcoin Core tab, enter details"))
+    lines = append(lines, wDimStyle.Render("3. SOCKS5 proxy: localhost:9050"))
 
-    content := strings.Join(lines, "\n")
-    box := wOuterBox.Width(bw).Padding(1, 2).Render(content)
-    title := wTitleStyle.Width(bw).Align(lipgloss.Center).
-        Render(" Sparrow Wallet Setup ")
+    box := wOuterBox.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+    title := wTitleStyle.Width(bw).Align(lipgloss.Center).Render(" Sparrow Wallet Setup ")
     footer := wFooterStyle.Render("  backspace back • q quit  ")
-
-    full := lipgloss.JoinVertical(lipgloss.Center,
-        "", title, "", box, "", footer)
-    return lipgloss.Place(m.width, m.height,
-        lipgloss.Center, lipgloss.Top, full)
+    full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top, full)
 }
-
-// ── Macaroon view ────────────────────────────────────────
 
 func (m Model) viewMacaroon() string {
     mac := readMacaroonHex(m.cfg)
     if mac == "" {
-        mac = "Macaroon not available."
+        mac = "Not available."
     }
     title := wLightningStyle.Render("⚡ Admin Macaroon (hex)")
-    hint := wDimStyle.Render("Select and copy. Press backspace to go back.")
-    content := lipgloss.JoinVertical(lipgloss.Left,
-        "", title, "", hint, "", mac, "")
-    return lipgloss.Place(m.width, m.height,
-        lipgloss.Center, lipgloss.Center, content)
+    hint := wDimStyle.Render("Select and copy. Backspace to go back.")
+    content := lipgloss.JoinVertical(lipgloss.Left, "", title, "", hint, "", mac, "")
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
-
-// ── QR code screen ───────────────────────────────────────
 
 func (m Model) viewQR() string {
     restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
     mac := readMacaroonHex(m.cfg)
     if restOnion == "" || mac == "" {
-        c := wWarnStyle.Render("QR not available.")
-        return lipgloss.Place(m.width, m.height,
-            lipgloss.Center, lipgloss.Center, c)
+        return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+            wWarnStyle.Render("QR not available."))
     }
-
     uri := fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
         restOnion, hexToBase64URL(mac))
     qr := renderQRCode(uri)
-
     var lines []string
     lines = append(lines, wDimStyle.Render("Zoom out: Cmd+Minus / Ctrl+Minus"))
     if qr != "" {
         lines = append(lines, qr)
-    } else {
-        lines = append(lines, wWarnStyle.Render("Could not generate QR."))
     }
     lines = append(lines, wFooterStyle.Render("backspace back • q quit"))
-
-    content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-    return lipgloss.Place(m.width, m.height,
-        lipgloss.Center, lipgloss.Top, content)
+    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Top,
+        lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
-// ── Logs tab — TUI-based log viewer ──────────────────────
+// ── Logs tab ─────────────────────────────────────────────
 
 func (m Model) viewLogs(bw int) string {
     var lines []string
     lines = append(lines, wHeaderStyle.Render("Select a service to view logs"))
     lines = append(lines, "")
 
-    services := []struct {
+    type svc struct {
         name string
         sel  logSelection
-    }{
-        {"Tor", logSelTor},
-        {"Bitcoin Core", logSelBitcoin},
     }
+    services := []svc{{"Tor", logSelTor}, {"Bitcoin Core", logSelBitcoin}}
     if m.cfg.HasLND() {
-        services = append(services, struct {
-            name string
-            sel  logSelection
-        }{"LND", logSelLND})
+        services = append(services, svc{"LND", logSelLND})
     }
     if m.cfg.LITInstalled {
-        services = append(services, struct {
-            name string
-            sel  logSelection
-        }{"Lightning Terminal", logSelLIT})
+        services = append(services, svc{"Lightning Terminal", logSelLIT})
     }
-
     if m.cfg.SyncthingInstalled {
-        services = append(services, struct {
-            name string
-            sel  logSelection
-        }{"Syncthing", logSelSyncthing})
+        services = append(services, svc{"Syncthing", logSelSyncthing})
     }
 
-    for _, svc := range services {
-        prefix := "  "
-        style := wValueStyle
-        if m.logSel == svc.sel {
-            prefix = "▸ "
-            style = wActionStyle
+    for _, s := range services {
+        prefix, style := "  ", wValueStyle
+        if m.logSel == s.sel {
+            prefix, style = "▸ ", wActionStyle
         }
-        lines = append(lines, style.Render(prefix+svc.name))
+        lines = append(lines, style.Render(prefix+s.name))
     }
-
     lines = append(lines, "")
-    lines = append(lines, wDimStyle.Render("Press Enter to view logs"))
-    lines = append(lines, wDimStyle.Render("Press b in log viewer to return"))
+    lines = append(lines, wDimStyle.Render("Enter to view • b to return"))
 
-    content := padLines(lines, wBoxHeight)
-    return wOuterBox.Width(bw).Padding(1, 2).Render(content)
+    return wOuterBox.Width(bw).Padding(1, 2).Render(padLines(lines, wBoxHeight))
 }
 
 // ── Software tab ─────────────────────────────────────────
@@ -1102,49 +1037,38 @@ func (m Model) viewSoftware(bw int) string {
     halfW := (bw - 4) / 2
     cardH := wBoxHeight
 
-    // Syncthing card (left)
+    // Syncthing card
     var syncLines []string
     syncLines = append(syncLines, wHeaderStyle.Render("Syncthing"))
     syncLines = append(syncLines, "")
-    syncLines = append(syncLines, wDimStyle.Render("File sync between your"))
-    syncLines = append(syncLines, wDimStyle.Render("node and local devices."))
-    syncLines = append(syncLines, wDimStyle.Render("Auto-backup LND channels."))
+    syncLines = append(syncLines, wDimStyle.Render("File sync & auto-backup"))
+    syncLines = append(syncLines, wDimStyle.Render("LND channel state."))
     syncLines = append(syncLines, "")
 
     if m.cfg.SyncthingInstalled {
-        syncLines = append(syncLines, wGreenDotStyle.Render("●")+" "+
-            wGoodStyle.Render("Installed"))
+        syncLines = append(syncLines, wGreenDotStyle.Render("●")+" "+wGoodStyle.Render("Installed"))
         syncLines = append(syncLines, "")
-
         syncOnion := readOnion("/var/lib/tor/syncthing/hostname")
         if syncOnion != "" {
             syncLines = append(syncLines, wLabelStyle.Render("Address:"))
             syncLines = append(syncLines, "  "+wMonoStyle.Render(syncOnion))
-            syncLines = append(syncLines, wLabelStyle.Render("Port: ")+
-                wMonoStyle.Render("8384"))
+            syncLines = append(syncLines, wLabelStyle.Render("Port: ")+wMonoStyle.Render("8384"))
         }
         if m.cfg.SyncthingPassword != "" {
             syncLines = append(syncLines, "")
-            syncLines = append(syncLines, wLabelStyle.Render("User: ")+
-                wMonoStyle.Render("admin"))
-            syncLines = append(syncLines, wLabelStyle.Render("Pass: ")+
-                wMonoStyle.Render(m.cfg.SyncthingPassword))
+            syncLines = append(syncLines, wLabelStyle.Render("User: ")+wMonoStyle.Render("admin"))
+            syncLines = append(syncLines, wLabelStyle.Render("Pass: ")+wMonoStyle.Render(m.cfg.SyncthingPassword))
         }
         syncLines = append(syncLines, "")
-        syncLines = append(syncLines, wDimStyle.Render("Open in Tor Browser"))
-        syncLines = append(syncLines, wDimStyle.Render("http://ADDRESS:8384"))
-    } else if !m.cfg.HasLND() {
-        syncLines = append(syncLines, wGrayedStyle.Render("Requires LND"))
-    } else if !m.cfg.WalletExists() {
-        syncLines = append(syncLines, wGrayedStyle.Render("Requires LND wallet"))
+        syncLines = append(syncLines, wActionStyle.Render("Select for full URL ▸"))
+    } else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+        syncLines = append(syncLines, wGrayedStyle.Render("Requires LND + wallet"))
     } else {
-        syncLines = append(syncLines, wRedDotStyle.Render("●")+" "+
-            wDimStyle.Render("Not installed"))
+        syncLines = append(syncLines, wRedDotStyle.Render("●")+" "+wDimStyle.Render("Not installed"))
         syncLines = append(syncLines, "")
         syncLines = append(syncLines, wActionStyle.Render("Select to install ▸"))
     }
 
-    syncContent := padLines(syncLines, cardH)
     sBorder := wNormalBorder
     if m.pairingFocus == 0 {
         if m.cfg.HasLND() && m.cfg.WalletExists() {
@@ -1153,37 +1077,33 @@ func (m Model) viewSoftware(bw int) string {
             sBorder = wGrayedBorder
         }
     }
-    syncCard := sBorder.Width(halfW).Padding(1, 2).Render(syncContent)
+    syncCard := sBorder.Width(halfW).Padding(1, 2).Render(padLines(syncLines, cardH))
 
-    // LIT card (right)
+    // LIT card
     var litLines []string
     litLines = append(litLines, wHeaderStyle.Render("Lightning Terminal"))
     litLines = append(litLines, "")
-    litLines = append(litLines, wDimStyle.Render("Browser UI for managing"))
-    litLines = append(litLines, wDimStyle.Render("channel liquidity. Loop,"))
-    litLines = append(litLines, wDimStyle.Render("Pool, Faraday, Terminal."))
+    litLines = append(litLines, wDimStyle.Render("Browser UI for channel"))
+    litLines = append(litLines, wDimStyle.Render("liquidity management."))
     litLines = append(litLines, "")
     litLines = append(litLines, wLabelStyle.Render("Version: ")+
         wValueStyle.Render("v"+installer.LitVersionStr()))
     litLines = append(litLines, "")
 
     if m.cfg.LITInstalled {
-        litLines = append(litLines, wGreenDotStyle.Render("●")+" "+
-            wGoodStyle.Render("Installed"))
+        litLines = append(litLines, wGreenDotStyle.Render("●")+" "+wGoodStyle.Render("Installed"))
         litLines = append(litLines, "")
-        litLines = append(litLines, wDimStyle.Render("See Lightning tab"))
-    } else if !m.cfg.HasLND() {
-        litLines = append(litLines, wGrayedStyle.Render("Requires LND"))
-    } else if !m.cfg.WalletExists() {
-        litLines = append(litLines, wGrayedStyle.Render("Requires LND wallet"))
+        litLines = append(litLines, wDimStyle.Render("See Lightning card"))
+        litLines = append(litLines, "")
+        litLines = append(litLines, wActionStyle.Render("Select for full URL ▸"))
+    } else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+        litLines = append(litLines, wGrayedStyle.Render("Requires LND + wallet"))
     } else {
-        litLines = append(litLines, wRedDotStyle.Render("●")+" "+
-            wDimStyle.Render("Not installed"))
+        litLines = append(litLines, wRedDotStyle.Render("●")+" "+wDimStyle.Render("Not installed"))
         litLines = append(litLines, "")
         litLines = append(litLines, wActionStyle.Render("Select to install ▸"))
     }
 
-    litContent := padLines(litLines, cardH)
     lBorder := wNormalBorder
     if m.pairingFocus == 1 {
         if m.cfg.HasLND() && m.cfg.WalletExists() {
@@ -1192,7 +1112,7 @@ func (m Model) viewSoftware(bw int) string {
             lBorder = wGrayedBorder
         }
     }
-    litCard := lBorder.Width(halfW).Padding(1, 2).Render(litContent)
+    litCard := lBorder.Width(halfW).Padding(1, 2).Render(padLines(litLines, cardH))
 
     return lipgloss.JoinHorizontal(lipgloss.Top, syncCard, "  ", litCard)
 }
@@ -1201,99 +1121,73 @@ func (m Model) viewSoftware(bw int) string {
 
 func runSystemUpdate() {
     fmt.Print("\033[2J\033[H")
-    fmt.Println()
-    fmt.Println("  ═══════════════════════════════════════════")
+    fmt.Println("\n  ═══════════════════════════════════════════")
     fmt.Println("    System Update")
-    fmt.Println("  ═══════════════════════════════════════════")
-    fmt.Println()
+    fmt.Println("  ═══════════════════════════════════════════\n")
     fmt.Println("  Running apt update && apt upgrade...")
-    fmt.Println("  This may take a few minutes.")
     fmt.Println()
 
-    cmd := exec.Command("apt-get", "update")
+    exec.Command("apt-get", "update").Run()
+    cmd := exec.Command("apt-get", "upgrade", "-y")
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
     cmd.Run()
 
-    cmd = exec.Command("apt-get", "upgrade", "-y")
-    cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
-    cmd.Run()
-
-    fmt.Println()
-    fmt.Println("  ✓ Update complete")
-
-    // Check if reboot needed
+    fmt.Println("\n  ✓ Update complete")
     if _, err := os.Stat("/var/run/reboot-required"); err == nil {
-        fmt.Println()
-        fmt.Println("  ⚠ Reboot required for kernel update.")
+        fmt.Println("\n  ⚠ Reboot required.")
         fmt.Print("  Reboot now? [y/N]: ")
-        var answer string
-        fmt.Scanln(&answer)
-        if strings.ToLower(answer) == "y" {
+        var ans string
+        fmt.Scanln(&ans)
+        if strings.ToLower(ans) == "y" {
             exec.Command("reboot").Run()
         }
     }
-
-    fmt.Println()
-    fmt.Print("  Press Enter to return to dashboard...")
+    fmt.Print("\n  Press Enter to return...")
     fmt.Scanln()
 }
 
 func runLogViewer(sel logSelection, cfg *config.AppConfig) {
     svcMap := map[logSelection]string{
-        logSelTor:     "tor",
-        logSelBitcoin: "bitcoind",
-        logSelLND:     "lnd",
-        logSelLIT:     "litd",
+        logSelTor: "tor", logSelBitcoin: "bitcoind",
+        logSelLND: "lnd", logSelLIT: "litd",
         logSelSyncthing: "syncthing",
     }
     svc := svcMap[sel]
-
     fmt.Print("\033[2J\033[H")
-    fmt.Println()
-    fmt.Printf("  ═══════════════════════════════════════════\n")
+    fmt.Printf("\n  ═══════════════════════════════════════════\n")
     fmt.Printf("    %s Logs (last 100 lines)\n", svc)
-    fmt.Printf("  ═══════════════════════════════════════════\n")
-    fmt.Println()
+    fmt.Printf("  ═══════════════════════════════════════════\n\n")
 
-    // Show last 100 lines statically (no -f follow mode)
-    cmd := exec.Command("journalctl", "-u", svc,
-        "-n", "100", "--no-pager")
+    cmd := exec.Command("journalctl", "-u", svc, "-n", "100", "--no-pager")
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
     cmd.Run()
 
-    fmt.Println()
-    fmt.Print("  Press Enter to return to dashboard...")
+    fmt.Print("\n  Press Enter to return...")
     fmt.Scanln()
 }
 
-// ── QR rendering ─────────────────────────────────────────
+// ── QR / Base64 ──────────────────────────────────────────
 
 func renderQRCode(data string) string {
     qr, err := qrcode.New(data, qrcode.Low)
     if err != nil {
         return ""
     }
-    bitmap := qr.Bitmap()
-    rows := len(bitmap)
-    cols := len(bitmap[0])
-
+    bm := qr.Bitmap()
+    rows, cols := len(bm), len(bm[0])
     var b strings.Builder
     for y := 0; y < rows; y += 2 {
         for x := 0; x < cols; x++ {
-            top := bitmap[y][x]
-            bot := false
-            if y+1 < rows {
-                bot = bitmap[y+1][x]
-            }
+            top := bm[y][x]
+            bot := y+1 < rows && bm[y+1][x]
             switch {
             case top && bot:
                 b.WriteString("█")
-            case top && !bot:
+            case top:
                 b.WriteString("▀")
-            case !top && bot:
+            case bot:
                 b.WriteString("▄")
             default:
                 b.WriteString(" ")
@@ -1311,33 +1205,16 @@ func hexToBase64URL(hexStr string) string {
     if err != nil {
         return ""
     }
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    result := make([]byte, 0, (len(data)*4/3)+4)
-    padding := (3 - len(data)%3) % 3
-    padded := make([]byte, len(data)+padding)
-    copy(padded, data)
-    for i := 0; i < len(padded); i += 3 {
-        n := uint(padded[i])<<16 | uint(padded[i+1])<<8 | uint(padded[i+2])
-        result = append(result, chars[(n>>18)&63])
-        result = append(result, chars[(n>>12)&63])
-        result = append(result, chars[(n>>6)&63])
-        result = append(result, chars[n&63])
-    }
-    if padding > 0 {
-        result = result[:len(result)-padding]
-    }
-    s := string(result)
-    s = strings.ReplaceAll(s, "+", "-")
-    s = strings.ReplaceAll(s, "/", "_")
-    return s
+    return base64.RawURLEncoding.EncodeToString(data)
 }
 
-// ── LND query helpers ────────────────────────────────────
+// ── LND queries ──────────────────────────────────────────
 
 func getLNDBalance(cfg *config.AppConfig) string {
-    cmd := exec.Command("sudo", "-u", "bitcoin", "lncli",
-        "--lnddir=/var/lib/lnd", "--network="+cfg.Network,
-        "walletbalance")
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    cmd := exec.CommandContext(ctx, "sudo", "-u", "bitcoin", "lncli",
+        "--lnddir=/var/lib/lnd", "--network="+cfg.Network, "walletbalance")
     out, err := cmd.CombinedOutput()
     if err != nil {
         return ""
@@ -1346,9 +1223,10 @@ func getLNDBalance(cfg *config.AppConfig) string {
 }
 
 func getLNDChannelCount(cfg *config.AppConfig) string {
-    cmd := exec.Command("sudo", "-u", "bitcoin", "lncli",
-        "--lnddir=/var/lib/lnd", "--network="+cfg.Network,
-        "getinfo")
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    cmd := exec.CommandContext(ctx, "sudo", "-u", "bitcoin", "lncli",
+        "--lnddir=/var/lib/lnd", "--network="+cfg.Network, "getinfo")
     out, err := cmd.CombinedOutput()
     if err != nil {
         return ""
@@ -1357,9 +1235,10 @@ func getLNDChannelCount(cfg *config.AppConfig) string {
 }
 
 func getLNDPubkey(cfg *config.AppConfig) string {
-    cmd := exec.Command("sudo", "-u", "bitcoin", "lncli",
-        "--lnddir=/var/lib/lnd", "--network="+cfg.Network,
-        "getinfo")
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    cmd := exec.CommandContext(ctx, "sudo", "-u", "bitcoin", "lncli",
+        "--lnddir=/var/lib/lnd", "--network="+cfg.Network, "getinfo")
     out, err := cmd.CombinedOutput()
     if err != nil {
         return ""
@@ -1367,7 +1246,7 @@ func getLNDPubkey(cfg *config.AppConfig) string {
     return extractJSON(string(out), "identity_pubkey")
 }
 
-// ── Generic helpers ──────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────
 
 func padLines(lines []string, target int) string {
     for len(lines) < target {
@@ -1392,8 +1271,8 @@ func readMacaroonHex(cfg *config.AppConfig) string {
     if cfg.IsMainnet() {
         network = "mainnet"
     }
-    path := fmt.Sprintf("/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon", network)
-    data, err := os.ReadFile(path)
+    data, err := os.ReadFile(fmt.Sprintf(
+        "/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon", network))
     if err != nil {
         return ""
     }
@@ -1418,10 +1297,7 @@ func readCookieValue(cfg *config.AppConfig) string {
 
 func diskUsage(path string) (string, string, string) {
     cmd := exec.Command("df", "-h", "--output=size,used,pcent", path)
-    out, err := cmd.CombinedOutput()
-    if err != nil {
-        return "N/A", "N/A", "N/A"
-    }
+    out, _ := cmd.CombinedOutput()
     lines := strings.Split(strings.TrimSpace(string(out)), "\n")
     if len(lines) < 2 {
         return "N/A", "N/A", "N/A"
@@ -1434,10 +1310,7 @@ func diskUsage(path string) (string, string, string) {
 }
 
 func memUsage() (string, string, string) {
-    data, err := os.ReadFile("/proc/meminfo")
-    if err != nil {
-        return "N/A", "N/A", "N/A"
-    }
+    data, _ := os.ReadFile("/proc/meminfo")
     var total, avail int
     for _, line := range strings.Split(string(data), "\n") {
         if strings.HasPrefix(line, "MemTotal:") {
@@ -1451,13 +1324,12 @@ func memUsage() (string, string, string) {
         return "N/A", "N/A", "N/A"
     }
     used := total - avail
-    pct := float64(used) / float64(total) * 100
-    return fmtKB(total), fmtKB(used), fmt.Sprintf("%.0f%%", pct)
+    return fmtKB(total), fmtKB(used), fmt.Sprintf("%.0f%%",
+        float64(used)/float64(total)*100)
 }
 
 func dirSize(path string) string {
-    cmd := exec.Command("du", "-sh", path)
-    out, err := cmd.CombinedOutput()
+    out, err := exec.Command("du", "-sh", path).CombinedOutput()
     if err != nil {
         return "N/A"
     }
