@@ -100,6 +100,10 @@ func configureSyncthingAuth(password string) error {
     content = strings.Replace(content,
         "<address>0.0.0.0:8384</address>",
         "<address>127.0.0.1:8384</address>", 1)
+    // Allow access via Tor onion address (skip host header check)
+    content = strings.Replace(content,
+        "<insecureSkipHostcheck>false</insecureSkipHostcheck>",
+        "<insecureSkipHostcheck>true</insecureSkipHostcheck>", 1)
     content = strings.Replace(content,
         "<user></user>",
         "<user>admin</user>", 1)

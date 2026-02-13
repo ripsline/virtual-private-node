@@ -22,7 +22,7 @@ const (
     lndVersion     = "0.20.0-beta"
     litVersion     = "0.16.0-alpha"
     systemUser     = "bitcoin"
-    appVersion     = "0.2.0"
+    appVersion     = "0.1.0"
 )
 
 func LitVersionStr() string { return litVersion }
@@ -351,8 +351,10 @@ func RunWalletCreation(networkName string) error {
         setupTextStyle.Render("  5. Write down your 24-word seed phrase") + "\n\n" +
         setupWarnStyle.Render("WARNING: Your seed is the ONLY way to recover funds.") + "\n" +
         setupWarnStyle.Render("WARNING: No one can help you if you lose it.") + "\n\n" +
-        setupDimStyle.Render("Press Enter to continue...")
-    showInfoBox(info)
+        setupDimStyle.Render("Enter to proceed • backspace to cancel")
+    if !showConfirmBox(info) {
+        return nil
+    }
 
     fmt.Print("\033[2J\033[H")
     fmt.Println("\n  ═══════════════════════════════════════════")
