@@ -16,6 +16,9 @@ VERSION="0.1.0"
 BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
+BASE_URL="https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}"
+PUBKEY_URL="https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/release.pub.asc"
+
 # ── Preflight checks ────────────────────────────────────────
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -25,7 +28,13 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 if ! grep -q "ID=debian" /etc/os-release 2>/dev/null; then
-    echo "ERROR: This installer requires Debian 12+."
+    echo "ERROR: This installer requires Debian."
+    exit 1
+fi
+
+DEBIAN_VER=$(grep -oP 'VERSION_ID="\K[0-9]+' /etc/os-release 2>/dev/null || echo "0")
+if [ "$DEBIAN_VER" -lt 12 ]; then
+    echo "ERROR: Debian 12+ required."
     exit 1
 fi
 
@@ -34,6 +43,11 @@ echo "  ╔═══════════════════════
 echo "  ║  Virtual Private Node — Bootstrap        ║"
 echo "  ╚══════════════════════════════════════════╝"
 echo ""
+
+# ── Ensure dependencies ─────────────────────────────────────
+
+apt-get update -qq
+apt-get install -y -qq sudo gnupg
 
 # ── Create admin user ───────────────────────────────────────
 
@@ -64,7 +78,22 @@ if [ -f /root/.ssh/authorized_keys ]; then
     echo "  ✓ Copied SSH keys to $ADMIN_USER"
 fi
 
-# ── Download rlvpn binary ───────────────────────────────────
+# ── Download helpers ────────────────────────────────────────
+
+download() {
+    local url="$1"
+    local out="$2"
+    if command -v wget &>/dev/null; then
+        wget -q -O "$out" "$url"
+    elif command -v curl &>/dev/null; then
+        curl -sL -o "$out" "$url"
+    else
+        echo "ERROR: Neither wget nor curl found."
+        exit 1
+    fi
+}
+
+# ── Download rlvpn tarball ──────────────────────────────────
 
 ARCH=$(uname -m)
 case $ARCH in
@@ -75,27 +104,62 @@ case $ARCH in
         ;;
 esac
 
-URL="https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}/${BINARY_NAME}-linux-${ARCH}"
+TARBALL="${BINARY_NAME}-${VERSION}-${ARCH}.tar.gz"
 
-echo "  Downloading rlvpn v${VERSION}..."
-if command -v wget &>/dev/null; then
-    wget -q -O /usr/local/bin/$BINARY_NAME "$URL"
-elif command -v curl &>/dev/null; then
-    curl -sL -o /usr/local/bin/$BINARY_NAME "$URL"
-else
-    echo "ERROR: Neither wget nor curl found."
+echo "  Downloading ${TARBALL}..."
+download "${BASE_URL}/${TARBALL}" "/tmp/${TARBALL}"
+
+if [ ! -s "/tmp/${TARBALL}" ]; then
+    echo "ERROR: Download failed. Check your connection and try again."
+    rm -f "/tmp/${TARBALL}"
     exit 1
 fi
 
-# Verify download succeeded
-if [ ! -s /usr/local/bin/$BINARY_NAME ]; then
-    echo "ERROR: Download failed. Check the URL and try again."
-    rm -f /usr/local/bin/$BINARY_NAME
+# ── Verify checksums + GPG signature ────────────────────────
+
+echo "  Downloading SHA256SUMS + signature..."
+download "${BASE_URL}/SHA256SUMS" "/tmp/SHA256SUMS"
+download "${BASE_URL}/SHA256SUMS.asc" "/tmp/SHA256SUMS.asc"
+
+echo "  Importing release public key..."
+download "${PUBKEY_URL}" "/tmp/release.pub.asc"
+gpg --batch --import /tmp/release.pub.asc >/dev/null 2>&1
+
+echo "  Verifying checksum signature..."
+if ! gpg --batch --verify /tmp/SHA256SUMS.asc /tmp/SHA256SUMS 2>/dev/null; then
+    echo "ERROR: GPG signature verification failed."
+    echo "  The download may be corrupted or tampered with."
+    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+    exit 1
+fi
+echo "  ✓ Signature verified"
+
+echo "  Verifying checksum..."
+cd /tmp
+if ! sha256sum -c SHA256SUMS --ignore-missing 2>/dev/null | grep -q "${TARBALL}: OK"; then
+    echo "ERROR: Checksum verification failed."
+    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+    exit 1
+fi
+echo "  ✓ Checksum verified"
+cd - >/dev/null
+
+# ── Extract + install binary ────────────────────────────────
+
+tar -xzf "/tmp/${TARBALL}" -C /tmp
+
+if [ ! -s "/tmp/${BINARY_NAME}" ]; then
+    echo "ERROR: Extracted binary not found."
+    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
     exit 1
 fi
 
-chmod 755 /usr/local/bin/$BINARY_NAME
+install -m 755 "/tmp/${BINARY_NAME}" /usr/local/bin/$BINARY_NAME
 echo "  ✓ Installed rlvpn to /usr/local/bin/"
+
+# ── Cleanup ─────────────────────────────────────────────────
+
+rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc /tmp/${BINARY_NAME}
 
 # ── Auto-launch on ripsline login ───────────────────────────
 
@@ -114,7 +178,7 @@ echo "  ✓ Configured auto-launch"
 # ── Disable root SSH login ──────────────────────────────────
 
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-systemctl restart sshd
+systemctl restart sshd 2>/dev/null || systemctl restart ssh
 echo "  ✓ Disabled root SSH login"
 
 # ── Print instructions ──────────────────────────────────────
