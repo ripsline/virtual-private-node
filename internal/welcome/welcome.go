@@ -854,11 +854,11 @@ func (m Model) cardBitcoinView(w, h int) string {
         if m.status.btcSynced {
             lines = append(lines,
                 wLabelStyle.Render("Sync: ")+
-                    wGoodStyle.Render("✓ synced"))
+                    wGoodStyle.Render("✅ synced"))
         } else {
             lines = append(lines,
                 wLabelStyle.Render("Sync: ")+
-                    wWarnStyle.Render("⟳ syncing"))
+                    wWarnStyle.Render("🔄 syncing"))
         }
         lines = append(lines,
             wLabelStyle.Render("Height: ")+
@@ -1090,9 +1090,9 @@ func (m Model) viewSparrow() string {
         }
     }
     lines = append(lines, "")
-    lines = append(lines, wDimStyle.Render("1. Sparrow → Preferences → Server"))
+    lines = append(lines, wDimStyle.Render("1. Sparrow → Settings → Server"))
     lines = append(lines, wDimStyle.Render("2. Bitcoin Core tab, enter details"))
-    lines = append(lines, wDimStyle.Render("3. SOCKS5 proxy: localhost:9050"))
+    lines = append(lines, wDimStyle.Render("3. Test Connection"))
 
     box := wOuterBox.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
     title := wTitleStyle.Width(bw).Align(lipgloss.Center).Render(" Sparrow Wallet Setup ")
@@ -1162,7 +1162,8 @@ func (m Model) viewLogs(bw int) string {
         lines = append(lines, style.Render(prefix+s.name))
     }
     lines = append(lines, "")
-    lines = append(lines, wDimStyle.Render("Enter to view • b to return"))
+    lines = append(lines, wDimStyle.Render("Enter to view"))
+                                            //removed b to return.
 
     return wOuterBox.Width(bw).Padding(1, 2).Render(padLines(lines, wBoxHeight))
 }
@@ -1265,15 +1266,14 @@ func (m Model) viewSoftware(bw int) string {
             litLines = append(litLines,
                 wLabelStyle.Render("Password:"))
             litLines = append(litLines,
-                "  "+wMonoStyle.Render(m.cfg.LITPassword))
+                ""+wMonoStyle.Render(m.cfg.LITPassword))
             litLines = append(litLines, "")
         }
         litLines = append(litLines,
             wDimStyle.Render("Open in Tor Browser."))
+        litLines = append(litLines, "")
         litLines = append(litLines,
-            wDimStyle.Render("Your browser will show a"))
-        litLines = append(litLines,
-            wDimStyle.Render("security warning. Click"))
+            wDimStyle.Render("Ignore security warning:"))
         litLines = append(litLines,
             wDimStyle.Render("Advanced → Accept Risk."))
         litLines = append(litLines,
@@ -1327,7 +1327,7 @@ func runSystemUpdate() {
     cmd.Stderr = os.Stderr
     cmd.Run()
 
-    fmt.Println("\n  ✓ Update complete")
+    fmt.Println("\n  ✅ Update complete")
     if _, err := os.Stat("/var/run/reboot-required"); err == nil {
         fmt.Println("\n  ⚠️ Reboot required.")
         fmt.Print("  Reboot now? [y/N]: ")
