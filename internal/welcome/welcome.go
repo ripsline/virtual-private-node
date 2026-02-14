@@ -240,7 +240,8 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
             "bitcoin-cli", "-datadir=/var/lib/bitcoin",
             "-conf=/etc/bitcoin/bitcoin.conf",
             "getblockchaininfo")
-        output, err := cmd.CombinedOutput()
+        cmd.Stderr = nil
+        output, err := cmd.Output()
         if err == nil {
             s.btcResponding = true
             info := string(output)
@@ -1411,7 +1412,8 @@ func getLNDBalance(cfg *config.AppConfig) string {
     defer cancel()
     cmd := exec.CommandContext(ctx, "sudo", "-u", "bitcoin", "lncli",
         "--lnddir=/var/lib/lnd", "--network="+cfg.Network, "walletbalance")
-    out, err := cmd.CombinedOutput()
+    cmd.Stderr = nil
+    out, err := cmd.Output()
     if err != nil {
         return ""
     }
@@ -1423,7 +1425,8 @@ func getLNDChannelCount(cfg *config.AppConfig) string {
     defer cancel()
     cmd := exec.CommandContext(ctx, "sudo", "-u", "bitcoin", "lncli",
         "--lnddir=/var/lib/lnd", "--network="+cfg.Network, "getinfo")
-    out, err := cmd.CombinedOutput()
+    cmd.Stderr = nil
+    out, err := cmd.Output()
     if err != nil {
         return ""
     }
@@ -1435,7 +1438,8 @@ func getLNDPubkey(cfg *config.AppConfig) string {
     defer cancel()
     cmd := exec.CommandContext(ctx, "sudo", "-u", "bitcoin", "lncli",
         "--lnddir=/var/lib/lnd", "--network="+cfg.Network, "getinfo")
-    out, err := cmd.CombinedOutput()
+    cmd.Stderr = nil
+    out, err := cmd.Output()
     if err != nil {
         return ""
     }

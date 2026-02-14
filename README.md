@@ -24,7 +24,7 @@ and `systemctl`. No wrappers, no abstractions.
 - 2 vCPU, 4 GB RAM, 90+ GB SSD
 
 - Mynymbox affiliate link with exact specs:
-https://client.mynymbox.io/store/custom/vps-2-4-90-nl?aff=8
+https://client.mynymbox.io/store/custom/custom-vps-2-4-90-nl?aff=8
 
 ### Quick Start
 
