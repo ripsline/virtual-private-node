@@ -50,7 +50,7 @@ func buildQuestions() []question {
             {label: "10 GB", desc: "Minimum — works but tight", value: "10"},
             {label: "25 GB", desc: "Recommended", value: "25"},
             {label: "50 GB", desc: "More block history", value: "50",
-                warn: "Make sure your VPS has at least 60 GB of disk space"},
+                warn: "Make sure to have plenty of disk space"},
         }},
     }
 }
