@@ -20,7 +20,7 @@ and `systemctl`. No wrappers, no abstractions.
 
 ### Requirements
 
-- Fresh Debian 12+ VPS
+- Fresh Debian 13+
 - 2 vCPU, 4 GB RAM, 90+ GB SSD
 
 - Mynymbox affiliate link with exact specs:
@@ -30,9 +30,14 @@ https://client.mynymbox.io/store/custom/custom-vps-2-4-90-nl?aff=8
 
 SSH into your VPS as root and run:
 
-~~~
+```bash
+apt update
+apt install -y git curl
+```
+
+```bash
 curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash
-~~~
+```
 
 This creates a `ripsline` user and downloads the `rlvpn` binary.
 Follow the on-screen instructions to SSH in as `ripsline` — the
@@ -42,70 +47,45 @@ node installer starts automatically.
 
 #### 1. Install Dependencies
 
-~~~bash
+```bash
 apt update
-apt install -y git wget sudo
-~~~
+apt install -y git wget sudo curl
+```
 
 #### 2. Install Go
 
-~~~bash
+```bash
 cd /tmp
-wget https://go.dev/dl/go1.25.6.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
 sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.25.6.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
 source ~/.profile
 go version
-~~~
+```
 
 #### 3. Clone and Build
 
-~~~bash
+```bash
 cd ~
 git clone https://github.com/ripsline/virtual-private-node.git
 cd virtual-private-node
 go mod tidy
 go build -o rlvpn ./cmd/
-~~~
+```
 
-#### 4. Manual Bootstrap
+#### 4. Install
 
-Run these commands as root to set up the `ripsline` user and
-install the binary:
+```bash
+sudo install -m 755 ./rlvpn /usr/local/bin/rlvpn
+curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash
+```
 
-~~~bash
-# Create ripsline user
-adduser --disabled-password --gecos "Virtual Private Node" ripsline
-PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
-echo "ripsline:$PASSWORD" | chpasswd
-echo "Password for ripsline: $PASSWORD"
+The bootstrap script detects that`rlvpn` is already installed and
+skips the download. It creates the`ripsline` user, configures
+auto-launch, and disables root SSH.
 
-# Passwordless sudo
-echo "ripsline ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ripsline
-chmod 440 /etc/sudoers.d/ripsline
-
-# Install the binary
-cp ./rlvpn /usr/local/bin/rlvpn
-chmod 755 /usr/local/bin/rlvpn
-
-# Auto-launch on ripsline login (source .bashrc first)
-cat > /home/ripsline/.bash_profile << 'EOF'
-[ -f ~/.bashrc ] && source ~/.bashrc
-if [ -n "$SSH_CONNECTION" ] && [ -t 0 ]; then
-    sudo /usr/local/bin/rlvpn
-fi
-EOF
-chown ripsline:ripsline /home/ripsline/.bash_profile
-~~~
-
-Save the printed password, then open a new terminal:
-
-~~~bash
-ssh ripsline@YOUR_SERVER_IP
-~~~
-
-The installer starts automatically.
+Follow the on-screen instructions to SSH in as`ripsline`.
 
 ### What the installer asks
 
@@ -115,7 +95,6 @@ The installer starts automatically.
 | Components | Bitcoin Core only, or Bitcoin Core + LND |
 | Prune size | 10 GB, 25 GB, or 50 GB |
 | LND P2P mode | Tor only or Hybrid (Tor + clearnet) |
-| SSH port | 22 or custom |
 
 ### Post-install Dashboard
 
@@ -126,11 +105,11 @@ Every SSH login as `ripsline` opens a dashboard with four tabs:
   (wallet creation, node details)
 - **Pairing** — Zeus and Sparrow wallet connection setup with QR code
 - **Logs** — select a service to view journal logs
-- **Software** — install Lightning Terminal and Syncthing
+- **Add-ons** — install Lightning Terminal and Syncthing
 
 Press `q` to drop to a shell:
 
-~~~bash
+```bash
 # Bitcoin Core
 bitcoin-cli getblockchaininfo
 bitcoin-cli getpeerinfo
@@ -146,7 +125,7 @@ lncli listchannels
 sudo systemctl status bitcoind
 sudo systemctl status lnd
 sudo journalctl -u lnd -n 50 --no-pager
-~~~
+```
 
 ### Software Verification
 
@@ -165,15 +144,27 @@ with unverified software.
 
 #### Zeus (Lightning — LND REST over Tor)
 
-1. coming soon...
-2. coming soon...
-3. coming soon...
+1. download & verify Zeus
+2. Advanced Set-Up
+3. + Create or connect a wallet
+4. Wallet interface: LND(REST)
+5. Server address: Navigate to Pairing tab
+6. REST Port: 8080
+7. Macaroon (Hex format): Paste from Pairing tab
+
+### OR
+
+1. download & verify Zeus
+2. Advanced Set-Up
+3. + Create or connect a wallet
+4. Scan QR: select [r] Pairing tab
 
 #### Sparrow (On-chain — Bitcoin Core RPC over Tor)
 
-1. coming soon...
-2. coming soon...
-3. coming soon...
+1. download & verify Sparrow Wallet
+2. Sparrow → Settings → Server → Bitcoin Core
+3. Enter credentials from Pairing tab.
+4. Test Connection
 
 Note: the cookie password changes when Bitcoin Core restarts.
 
@@ -182,7 +173,7 @@ Note: the cookie password changes when Bitcoin Core restarts.
 #### Lightning Terminal (LIT)
 
 Browser-based interface for channel management. Installed from the
-Software tab. Accessed via Tor Browser at the onion address shown
+Add-ons tab. Accessed via Tor Browser at the onion address shown
 in the Lightning detail screen. Self-signed certificate warning is
 expected — the connection is encrypted by Tor.
 
@@ -190,23 +181,23 @@ expected — the connection is encrypted by Tor.
 
 File synchronization between your node and local devices.
 Automatically backs up LND channel state (channel.backup) to a
-sync folder. Install from the Software tab, then pair your local
+sync folder. Install from the Add-ons tab, then pair your local
 Syncthing instance through the web UI (accessed via Tor Browser).
 
 ### Architecture
 
-~~~
+```
 User SSH → ripsline@VPS → rlvpn dashboard
                              press q → shell with bitcoin-cli, lncli
 
 Services (systemd, run as bitcoin user):
-  tor.service              → SOCKS proxy (9050), control port (9051)
-  bitcoind.service         → pruned node, Tor-routed
-  lnd.service              → Lightning, Tor hidden services
-  litd.service             → Lightning Terminal web UI
-  syncthing.service        → file sync with channel backup
+  tor.service → SOCKS proxy (9050), control port (9051)
+  bitcoind.service → pruned node, Tor-routed
+  lnd.service → Lightning, Tor hidden services
+  litd.service → Lightning Terminal web UI
+  syncthing.service → file sync with channel backup
   lnd-backup-watch.path    → watches channel.backup for changes
-~~~
+```
 
 ### Directory Layout
 
@@ -237,15 +228,6 @@ Services (systemd, run as bitcoin user):
 - GPG signature verification for all software
 - Unattended security upgrades with auto-reboot
 - LND channel backup auto-synced via Syncthing
-
-### Plugins
-
-This is a base layer. Additional software can be built on top:
-
-- **[electrum-go](https://github.com/ripsline/electrum-go)** — forward-
-  indexing electrum style server (beta software - run in testnet and provide feedback)
-
-Plugins use `lncli` and `bitcoin-cli` directly.
 
 ## License
 

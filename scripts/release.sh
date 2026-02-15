@@ -4,23 +4,32 @@ set -eo pipefail
 # ═══════════════════════════════════════════════════════════
 # Virtual Private Node — Release Build Script
 #
-# Builds the binary, creates tarball, generates checksums,
-# and signs with GPG.
+# Reads VERSION from virtual-private-node.sh automatically.
+# Builds reproducible binary, creates tarball, generates
+# checksums, and signs with GPG.
 #
 # Usage:
-#   ./scripts/release.sh 0.1.0
+#   ./scripts/release.sh           # reads version from bootstrap script
+#   ./scripts/release.sh 0.2.0     # override version
 # ═══════════════════════════════════════════════════════════
-
-VERSION="$1"
-
-if [ -z "$VERSION" ]; then
-    echo "Usage: ./scripts/release.sh <version>"
-    echo "Example: ./scripts/release.sh 0.1.0"
-    exit 1
-fi
 
 BINARY="rlvpn"
 OUTDIR="release"
+
+# ── Resolve version ─────────────────────────────────────────
+
+if [ -n "$1" ]; then
+    VERSION="$1"
+else
+    # Read from virtual-private-node.sh
+    VERSION=$(grep '^VERSION=' virtual-private-node.sh | head -1 | cut -d'"' -f2)
+    if [ -z "$VERSION" ]; then
+        echo "ERROR: Could not read VERSION from virtual-private-node.sh"
+        echo "Usage: ./scripts/release.sh [version]"
+        exit 1
+    fi
+    echo "  Read version from virtual-private-node.sh: ${VERSION}"
+fi
 
 echo ""
 echo "  Building Virtual Private Node v${VERSION}"
@@ -34,8 +43,18 @@ mkdir -p "$OUTDIR"
 # ── Build ───────────────────────────────────────────────────
 
 echo "  Building linux/amd64..."
-GOOS=linux GOARCH=amd64 go build -o "${OUTDIR}/${BINARY}" ./cmd/
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION}" \
+    -o "${OUTDIR}/${BINARY}" ./cmd/
 echo "  ✓ Binary built"
+
+# ── Verify version is embedded ──────────────────────────────
+
+EMBEDDED=$(go version -m "${OUTDIR}/${BINARY}" 2>/dev/null | grep "main.version" || true)
+if [ -n "$EMBEDDED" ]; then
+    echo "  ✓ Version embedded: ${EMBEDDED}"
+fi
 
 # ── Create tarball ──────────────────────────────────────────
 
@@ -75,9 +94,11 @@ echo ""
 ls -lh "$TARBALL" SHA256SUMS SHA256SUMS.asc
 echo ""
 echo "  Next steps:"
-echo "    1. git tag -s v${VERSION} -m 'v${VERSION}'"
-echo "    2. git push origin v${VERSION}"
-echo "    3. Upload these 3 files to the GitHub release"
+echo "    1. git add -A && git commit -m 'v${VERSION}'"
+echo "    2. git tag -s v${VERSION} -m 'v${VERSION}'"
+echo "    3. git push origin main && git push origin v${VERSION}"
+echo "    4. gh release create v${VERSION} --title 'v${VERSION}' \\"
+echo "         --generate-notes ${TARBALL} SHA256SUMS SHA256SUMS.asc"
 echo ""
 echo "  ═══════════════════════════════════════════════════"
 echo ""

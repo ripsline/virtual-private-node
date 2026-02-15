@@ -22,8 +22,13 @@ const (
     lndVersion     = "0.20.0-beta"
     litVersion     = "0.16.0-alpha"
     systemUser     = "bitcoin"
-    appVersion     = "0.1.0"
 )
+
+var appVersion = "dev"
+
+func SetVersion(v string) {
+    appVersion = v
+}
 
 func LitVersionStr() string { return litVersion }
 
