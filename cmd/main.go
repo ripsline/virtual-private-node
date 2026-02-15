@@ -9,9 +9,11 @@ import (
     "github.com/ripsline/virtual-private-node/internal/welcome"
 )
 
-const version = "0.1.0"
+var version = "dev"
 
 func main() {
+    installer.SetVersion(version)
+
     if !installer.NeedsInstall() {
         cfg, err := config.Load()
         if err != nil {

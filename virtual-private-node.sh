@@ -4,7 +4,7 @@ set -eo pipefail
 # ═══════════════════════════════════════════════════════════
 # Virtual Private Node — Bootstrap Script
 #
-# This script runs as root on a fresh Debian 12+ VPS.
+# This script runs as root on a fresh Debian 13+.
 # It creates the ripsline user, downloads the rlvpn binary,
 # configures auto-launch, and disables root SSH.
 #
@@ -12,7 +12,7 @@ set -eo pipefail
 #   curl -sL ripsline.com/virtual-private-node.sh | sudo bash
 # ═══════════════════════════════════════════════════════════
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
@@ -106,60 +106,64 @@ esac
 
 TARBALL="${BINARY_NAME}-${VERSION}-${ARCH}.tar.gz"
 
-echo "  Downloading ${TARBALL}..."
-download "${BASE_URL}/${TARBALL}" "/tmp/${TARBALL}"
+if command -v "$BINARY_NAME" &>/dev/null; then
+    echo "  rlvpn binary already installed, skipping download."
+else
+    echo "  Downloading ${TARBALL}..."
+    download "${BASE_URL}/${TARBALL}" "/tmp/${TARBALL}"
 
-if [ ! -s "/tmp/${TARBALL}" ]; then
-    echo "ERROR: Download failed. Check your connection and try again."
-    rm -f "/tmp/${TARBALL}"
-    exit 1
+    if [ ! -s "/tmp/${TARBALL}" ]; then
+        echo "ERROR: Download failed. Check your connection and try again."
+        rm -f "/tmp/${TARBALL}"
+        exit 1
+    fi
+
+    # ── Verify checksums + GPG signature ────────────────────────
+
+    echo "  Downloading SHA256SUMS + signature..."
+    download "${BASE_URL}/SHA256SUMS" "/tmp/SHA256SUMS"
+    download "${BASE_URL}/SHA256SUMS.asc" "/tmp/SHA256SUMS.asc"
+
+    echo "  Importing release public key..."
+    download "${PUBKEY_URL}" "/tmp/release.pub.asc"
+    gpg --batch --import /tmp/release.pub.asc >/dev/null 2>&1
+
+    echo "  Verifying checksum signature..."
+    if ! gpg --batch --verify /tmp/SHA256SUMS.asc /tmp/SHA256SUMS 2>/dev/null; then
+        echo "ERROR: GPG signature verification failed."
+        echo "  The download may be corrupted or tampered with."
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+        exit 1
+    fi
+    echo "  ✓ Signature verified"
+
+    echo "  Verifying checksum..."
+    cd /tmp
+    if ! sha256sum -c SHA256SUMS --ignore-missing 2>/dev/null | grep -q "${TARBALL}: OK"; then
+        echo "ERROR: Checksum verification failed."
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+        exit 1
+    fi
+    echo "  ✓ Checksum verified"
+    cd - >/dev/null
+
+    # ── Extract + install binary ────────────────────────────────
+
+    tar -xzf "/tmp/${TARBALL}" -C /tmp
+
+    if [ ! -s "/tmp/${BINARY_NAME}" ]; then
+        echo "ERROR: Extracted binary not found."
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+        exit 1
+    fi
+
+    install -m 755 "/tmp/${BINARY_NAME}" /usr/local/bin/$BINARY_NAME
+    echo "  ✓ Installed rlvpn to /usr/local/bin/"
+
+    # ── Cleanup ─────────────────────────────────────────────────
+
+    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc /tmp/${BINARY_NAME}
 fi
-
-# ── Verify checksums + GPG signature ────────────────────────
-
-echo "  Downloading SHA256SUMS + signature..."
-download "${BASE_URL}/SHA256SUMS" "/tmp/SHA256SUMS"
-download "${BASE_URL}/SHA256SUMS.asc" "/tmp/SHA256SUMS.asc"
-
-echo "  Importing release public key..."
-download "${PUBKEY_URL}" "/tmp/release.pub.asc"
-gpg --batch --import /tmp/release.pub.asc >/dev/null 2>&1
-
-echo "  Verifying checksum signature..."
-if ! gpg --batch --verify /tmp/SHA256SUMS.asc /tmp/SHA256SUMS 2>/dev/null; then
-    echo "ERROR: GPG signature verification failed."
-    echo "  The download may be corrupted or tampered with."
-    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
-    exit 1
-fi
-echo "  ✓ Signature verified"
-
-echo "  Verifying checksum..."
-cd /tmp
-if ! sha256sum -c SHA256SUMS --ignore-missing 2>/dev/null | grep -q "${TARBALL}: OK"; then
-    echo "ERROR: Checksum verification failed."
-    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
-    exit 1
-fi
-echo "  ✓ Checksum verified"
-cd - >/dev/null
-
-# ── Extract + install binary ────────────────────────────────
-
-tar -xzf "/tmp/${TARBALL}" -C /tmp
-
-if [ ! -s "/tmp/${BINARY_NAME}" ]; then
-    echo "ERROR: Extracted binary not found."
-    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
-    exit 1
-fi
-
-install -m 755 "/tmp/${BINARY_NAME}" /usr/local/bin/$BINARY_NAME
-echo "  ✓ Installed rlvpn to /usr/local/bin/"
-
-# ── Cleanup ─────────────────────────────────────────────────
-
-rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc /tmp/${BINARY_NAME}
 
 # ── Auto-launch on ripsline login ───────────────────────────
 
