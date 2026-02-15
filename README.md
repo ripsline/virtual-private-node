@@ -175,9 +175,9 @@ before running the one-liner.
 
 #### Zeus (Lightning — LND REST over Tor)
 
-1. download & verify Zeus
+1. Download & Verify Zeus
 2. Advanced Set-Up
-3. + Create or connect a wallet
+3. Create or connect a wallet
 4. Wallet interface: LND(REST)
 5. Server address: Navigate to Pairing tab
 6. REST Port: 8080
@@ -185,14 +185,14 @@ before running the one-liner.
 
 ### OR
 
-1. download & verify Zeus
+1. Download & Verify Zeus
 2. Advanced Set-Up
 3. + Create or connect a wallet
 4. Scan QR: select [r] Pairing tab
 
 #### Sparrow (On-chain — Bitcoin Core RPC over Tor)
 
-1. download & verify Sparrow Wallet
+1. Download & Verify Sparrow Wallet
 2. Sparrow → Settings → Server → Bitcoin Core
 3. Enter credentials from Pairing tab.
 4. Test Connection
@@ -262,4 +262,10 @@ Services (systemd, run as bitcoin user):
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Copyright (C) 2026 ripsline
+
+This project is free software licensed under the
+[GNU Affero General Public License v3.0](LICENSE). You are free to
+use, modify, and distribute it under the same terms. If you run a
+modified version as a network service, you must make the source
+available to its users.
