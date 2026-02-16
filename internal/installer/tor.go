@@ -3,38 +3,35 @@ package installer
 import (
     "fmt"
     "os"
-    "os/exec"
+    "strings"
+
+    "github.com/ripsline/virtual-private-node/internal/config"
+    "github.com/ripsline/virtual-private-node/internal/system"
 )
 
-// installTor installs the Tor package from Debian's repositories.
 func installTor() error {
-    cmd := exec.Command("apt-get", "install", "-y", "-qq", "tor")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("%s: %s", err, output)
-    }
-    return nil
+    return system.Run("apt-get", "install", "-y", "-qq", "tor")
 }
 
-// writeTorConfig writes the torrc with hidden services appropriate
-// for the installed components. Bitcoin-only gets RPC and P2P
-// hidden services. Bitcoin+LND adds gRPC and REST hidden services.
-func writeTorConfig(cfg *installConfig) error {
-    content := `# Virtual Private Node — Tor Configuration
-SOCKSPort 9050
-`
+// RebuildTorConfig generates the complete torrc from current AppConfig state.
+// Called on initial install and every time an add-on is installed.
+func RebuildTorConfig(cfg *config.AppConfig) error {
+    net := cfg.NetworkConfig()
 
-    // Control port is needed for LND to manage its P2P onion service
-    if cfg.components == "bitcoin+lnd" {
-        content += `
-# Control port for LND P2P onion management
-ControlPort 9051
-CookieAuthentication 1
-CookieAuthFileGroupReadable 1
-`
+    var b strings.Builder
+    b.WriteString("# Virtual Private Node — Tor Configuration\n")
+    b.WriteString("SOCKSPort 9050\n")
+
+    // Control port needed for LND
+    if cfg.HasLND() {
+        b.WriteString("\n# Control port for LND P2P onion management\n")
+        b.WriteString("ControlPort 9051\n")
+        b.WriteString("CookieAuthentication 1\n")
+        b.WriteString("CookieAuthFileGroupReadable 1\n")
     }
 
-    // Bitcoin hidden services — always created
-    content += fmt.Sprintf(`
+    // Bitcoin hidden services — always
+    b.WriteString(fmt.Sprintf(`
 # Bitcoin Core RPC (for wallet connections like Sparrow)
 HiddenServiceDir /var/lib/tor/bitcoin-rpc/
 HiddenServicePort %d 127.0.0.1:%d
@@ -42,12 +39,11 @@ HiddenServicePort %d 127.0.0.1:%d
 # Bitcoin Core P2P (static onion address for peers)
 HiddenServiceDir /var/lib/tor/bitcoin-p2p/
 HiddenServicePort %d 127.0.0.1:%d
-`, cfg.network.RPCPort, cfg.network.RPCPort,
-        cfg.network.P2PPort, cfg.network.P2PPort)
+`, net.RPCPort, net.RPCPort, net.P2PPort, net.P2PPort))
 
-    // LND hidden services — only if LND is installed
-    if cfg.components == "bitcoin+lnd" {
-        content += `
+    // LND hidden services
+    if cfg.HasLND() {
+        b.WriteString(`
 # LND gRPC (wallet connections over Tor)
 HiddenServiceDir /var/lib/tor/lnd-grpc/
 HiddenServicePort 10009 127.0.0.1:10009
@@ -55,37 +51,41 @@ HiddenServicePort 10009 127.0.0.1:10009
 # LND REST (wallet connections over Tor)
 HiddenServiceDir /var/lib/tor/lnd-rest/
 HiddenServicePort 8080 127.0.0.1:8080
-`
+`)
     }
 
-    return os.WriteFile("/etc/tor/torrc", []byte(content), 0644)
+    // LIT hidden service
+    if cfg.LITInstalled {
+        b.WriteString(`
+# Lightning Terminal web UI (Tor only)
+HiddenServiceDir /var/lib/tor/lnd-lit/
+HiddenServicePort 8443 127.0.0.1:8443
+`)
+    }
+
+    // Syncthing hidden services
+    if cfg.SyncthingInstalled {
+        b.WriteString(`
+# Syncthing web UI (Tor only, HTTP)
+HiddenServiceDir /var/lib/tor/syncthing/
+HiddenServicePort 8384 127.0.0.1:8384
+
+# Syncthing sync protocol (Tor only)
+HiddenServiceDir /var/lib/tor/syncthing-sync/
+HiddenServicePort 22000 127.0.0.1:22000
+`)
+    }
+
+    return os.WriteFile("/etc/tor/torrc", []byte(b.String()), 0644)
 }
 
-// addUserToTorGroup allows the system user to read the Tor
-// control auth cookie for LND's onion service management.
 func addUserToTorGroup(username string) error {
-    cmd := exec.Command("usermod", "-aG", "debian-tor", username)
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("%s: %s", err, output)
-    }
-    return nil
+    return system.Run("usermod", "-aG", "debian-tor", username)
 }
 
-// restartTor enables and restarts the Tor service.
-// This must happen after writing torrc so the hidden
-// service directories and keys are created.
 func restartTor() error {
-    commands := [][]string{
-        {"systemctl", "enable", "tor"},
-        {"systemctl", "restart", "tor"},
+    if err := system.Run("systemctl", "enable", "tor"); err != nil {
+        return err
     }
-
-    for _, args := range commands {
-        cmd := exec.Command(args[0], args[1:]...)
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("%v: %s: %s", args, err, output)
-        }
-    }
-
-    return nil
+    return system.Run("systemctl", "restart", "tor")
 }

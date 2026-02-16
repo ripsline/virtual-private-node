@@ -9,15 +9,25 @@ set -eo pipefail
 # configures auto-launch, and disables root SSH.
 #
 # Usage:
-#   curl -sL ripsline.com/virtual-private-node.sh | sudo bash
+#   curl -sL ripsline.com/virtual-private-node.sh | bash
+#   curl -sL ripsline.com/virtual-private-node.sh | bash -s -- --testnet4
 # ═══════════════════════════════════════════════════════════
 
-VERSION="0.1.1"
+VERSION="0.2.0"
 BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
 BASE_URL="https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}"
 PUBKEY_URL="https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/release.pub.asc"
+
+# ── Parse flags ──────────────────────────────────────────────
+
+NETWORK="mainnet"
+for arg in "$@"; do
+    case "$arg" in
+        --testnet4) NETWORK="testnet4" ;;
+    esac
+done
 
 # ── Preflight checks ────────────────────────────────────────
 
@@ -43,11 +53,19 @@ echo "  ╔═══════════════════════
 echo "  ║  Virtual Private Node — Bootstrap        ║"
 echo "  ╚══════════════════════════════════════════╝"
 echo ""
+echo "  Network: ${NETWORK}"
+echo ""
 
 # ── Ensure dependencies ─────────────────────────────────────
 
 apt-get update -qq
 apt-get install -y -qq sudo gnupg
+
+# Ensure hostname resolves (prevents sudo delays)
+if ! getent hosts "$(hostname)" >/dev/null 2>&1; then
+    echo "127.0.0.1 $(hostname)" >> /etc/hosts
+    echo "  ✓ Fixed hostname resolution"
+fi
 
 # ── Create admin user ───────────────────────────────────────
 
@@ -92,6 +110,25 @@ download() {
         exit 1
     fi
 }
+
+# ── Pre-seed network config ────────────────────────────────
+
+mkdir -p /etc/rlvpn
+if [ ! -f /etc/rlvpn/config.json ]; then
+    cat > /etc/rlvpn/config.json << CFGEOF
+{
+  "network": "${NETWORK}",
+  "components": "bitcoin",
+  "prune_size": 25,
+  "p2p_mode": "tor",
+  "auto_unlock": false,
+  "lnd_installed": false,
+  "lit_installed": false,
+  "syncthing_installed": false
+}
+CFGEOF
+    echo "  ✓ Pre-seeded config (${NETWORK})"
+fi
 
 # ── Download rlvpn tarball ──────────────────────────────────
 
@@ -206,6 +243,7 @@ echo "    ssh $ADMIN_USER@$SERVER_IP"
 echo "    Password: $PASSWORD"
 echo ""
 echo "  The node installer will start automatically."
+echo "  Network: ${NETWORK}"
 echo ""
 echo "  ⚠️  Save this password. Root SSH is now disabled."
 echo "  ⚠️  Recovery: use your VPS provider's console."

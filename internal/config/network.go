@@ -1,4 +1,4 @@
-package installer
+package config
 
 type NetworkConfig struct {
     Name           string
@@ -10,26 +10,33 @@ type NetworkConfig struct {
     ZMQTxPort      int
     LNCLINetwork   string
     CookiePath     string
-    DataSubdir     string
 }
 
 func Mainnet() *NetworkConfig {
     return &NetworkConfig{
-        Name: "mainnet", BitcoinFlag: "",
+        Name:           "mainnet",
+        BitcoinFlag:    "",
         LNDBitcoinFlag: "bitcoin.mainnet=true",
-        RPCPort: 8332, P2PPort: 8333,
-        ZMQBlockPort: 28332, ZMQTxPort: 28333,
-        LNCLINetwork: "mainnet", CookiePath: ".cookie",
+        RPCPort:        8332,
+        P2PPort:        8333,
+        ZMQBlockPort:   28332,
+        ZMQTxPort:      28333,
+        LNCLINetwork:   "mainnet",
+        CookiePath:     ".cookie",
     }
 }
 
 func Testnet4() *NetworkConfig {
     return &NetworkConfig{
-        Name: "testnet4", BitcoinFlag: "testnet4=1",
+        Name:           "testnet4",
+        BitcoinFlag:    "testnet4=1",
         LNDBitcoinFlag: "bitcoin.testnet4=true",
-        RPCPort: 48332, P2PPort: 48333,
-        ZMQBlockPort: 28334, ZMQTxPort: 28335,
-        LNCLINetwork: "testnet4", CookiePath: "testnet4/.cookie",
+        RPCPort:        48332,
+        P2PPort:        48333,
+        ZMQBlockPort:   28334,
+        ZMQTxPort:      28335,
+        LNCLINetwork:   "testnet4",
+        CookiePath:     "testnet4/.cookie",
     }
 }
 

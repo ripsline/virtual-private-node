@@ -6,9 +6,11 @@ import (
     "fmt"
     "net/http"
     "os"
-    "os/exec"
     "strings"
     "time"
+
+    "github.com/ripsline/virtual-private-node/internal/config"
+    "github.com/ripsline/virtual-private-node/internal/system"
 )
 
 func downloadLND(version string) error {
@@ -17,11 +19,10 @@ func downloadLND(version string) error {
         version, filename)
     manifestURL := fmt.Sprintf("https://github.com/lightningnetwork/lnd/releases/download/v%s/manifest-v%s.txt",
         version, version)
-    if err := download(url, "/tmp/"+filename); err != nil {
+    if err := system.Download(url, "/tmp/"+filename); err != nil {
         return err
     }
-    // Hard-fail if manifest download fails
-    if err := download(manifestURL, "/tmp/manifest.txt"); err != nil {
+    if err := system.Download(manifestURL, "/tmp/manifest.txt"); err != nil {
         return fmt.Errorf("download LND manifest: %w", err)
     }
     return nil
@@ -31,27 +32,22 @@ func verifyLND(version string) error {
     if _, err := os.Stat("/tmp/manifest.txt"); err != nil {
         return fmt.Errorf("LND manifest not found")
     }
-    cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "manifest.txt")
-    cmd.Dir = "/tmp"
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("checksum failed: %s: %s", err, output)
+    if err := system.Run("sha256sum", "--ignore-missing", "--check", "/tmp/manifest.txt"); err != nil {
+        return fmt.Errorf("checksum failed: %w", err)
     }
     return nil
 }
 
 func extractAndInstallLND(version string) error {
     filename := fmt.Sprintf("lnd-linux-amd64-v%s.tar.gz", version)
-    cmd := exec.Command("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("extract: %s: %s", err, output)
+    if err := system.Run("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp"); err != nil {
+        return err
     }
     extractDir := fmt.Sprintf("/tmp/lnd-linux-amd64-v%s", version)
     for _, bin := range []string{"lnd", "lncli"} {
         src := fmt.Sprintf("%s/%s", extractDir, bin)
-        cmd = exec.Command("install", "-m", "0755", "-o", "root", "-g", "root",
-            src, "/usr/local/bin/")
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("install %s: %s: %s", bin, err, output)
+        if err := system.Run("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
+            return err
         }
     }
     os.Remove("/tmp/" + filename)
@@ -60,19 +56,44 @@ func extractAndInstallLND(version string) error {
     return nil
 }
 
-func writeLNDConfig(cfg *installConfig) error {
+func createLNDDirs(username string) error {
+    dirs := []struct {
+        path  string
+        owner string
+        mode  os.FileMode
+    }{
+        {"/etc/lnd", "root:" + username, 0750},
+        {"/var/lib/lnd", username + ":" + username, 0750},
+    }
+    for _, d := range dirs {
+        if err := os.MkdirAll(d.path, d.mode); err != nil {
+            return err
+        }
+        if err := system.Run("chown", d.owner, d.path); err != nil {
+            return err
+        }
+        os.Chmod(d.path, d.mode)
+    }
+    return nil
+}
+
+func writeLNDConfig(cfg *config.AppConfig, publicIPv4 string) error {
+    net := cfg.NetworkConfig()
     restOnion := strings.TrimSpace(readFileOrDefault("/var/lib/tor/lnd-rest/hostname", ""))
+
     listenLine := "listen=localhost:9735"
     externalLine := ""
-    if cfg.p2pMode == "hybrid" && cfg.publicIPv4 != "" {
+    if cfg.P2PMode == "hybrid" && publicIPv4 != "" {
         listenLine = "listen=0.0.0.0:9735"
-        externalLine = fmt.Sprintf("externalhosts=%s:9735", cfg.publicIPv4)
+        externalLine = fmt.Sprintf("externalhosts=%s:9735", publicIPv4)
     }
+
     tlsExtraDomain := ""
     if restOnion != "" {
         tlsExtraDomain = fmt.Sprintf("tlsextradomain=%s", restOnion)
     }
-    cookiePath := fmt.Sprintf("/var/lib/bitcoin/%s", cfg.network.CookiePath)
+
+    cookiePath := fmt.Sprintf("/var/lib/bitcoin/%s", net.CookiePath)
 
     content := fmt.Sprintf(`# Virtual Private Node — LND
 [Application Options]
@@ -105,16 +126,13 @@ tor.targetipaddress=127.0.0.1
 tor.v3=true
 tor.streamisolation=true
 `, listenLine, externalLine, tlsExtraDomain,
-        cfg.network.LNDBitcoinFlag, cookiePath,
-        cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
+        net.LNDBitcoinFlag, cookiePath,
+        net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
 
     if err := os.WriteFile("/etc/lnd/lnd.conf", []byte(content), 0640); err != nil {
         return err
     }
-    if output, err := exec.Command("chown", "root:"+systemUser, "/etc/lnd/lnd.conf").CombinedOutput(); err != nil {
-        return fmt.Errorf("chown lnd.conf: %s: %s", err, output)
-    }
-    return nil
+    return system.Run("chown", "root:"+systemUser, "/etc/lnd/lnd.conf")
 }
 
 func writeLNDServiceInitial(username string) error {
@@ -142,17 +160,13 @@ WantedBy=multi-user.target
 }
 
 func startLND() error {
-    for _, args := range [][]string{
-        {"systemctl", "daemon-reload"},
-        {"systemctl", "enable", "lnd"},
-        {"systemctl", "start", "lnd"},
-    } {
-        cmd := exec.Command(args[0], args[1:]...)
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("%v: %s: %s", args, err, output)
-        }
+    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+        return err
     }
-    return nil
+    if err := system.Run("systemctl", "enable", "lnd"); err != nil {
+        return err
+    }
+    return system.Run("systemctl", "start", "lnd")
 }
 
 func setupAutoUnlock(password string) error {
@@ -160,7 +174,7 @@ func setupAutoUnlock(password string) error {
     if err := os.WriteFile(passwordFile, []byte(password), 0400); err != nil {
         return err
     }
-    exec.Command("chown", systemUser+":"+systemUser, passwordFile).Run()
+    system.RunSilent("chown", systemUser+":"+systemUser, passwordFile)
 
     content := fmt.Sprintf(`[Unit]
 Description=LND Lightning Network Daemon
@@ -186,20 +200,12 @@ WantedBy=multi-user.target
     if err := os.WriteFile("/etc/systemd/system/lnd.service", []byte(content), 0644); err != nil {
         return err
     }
-    for _, args := range [][]string{
-        {"systemctl", "daemon-reload"},
-        {"systemctl", "restart", "lnd"},
-    } {
-        cmd := exec.Command(args[0], args[1:]...)
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("%v: %s: %s", args, err, output)
-        }
+    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+        return err
     }
-    return nil
+    return system.Run("systemctl", "restart", "lnd")
 }
 
-// waitForLND polls LND's REST endpoint with TLS cert pinning.
-// Falls back to insecure if cert doesn't exist yet (first start race).
 func waitForLND() error {
     for i := 0; i < 60; i++ {
         client := buildLNDClient()
@@ -213,11 +219,8 @@ func waitForLND() error {
     return fmt.Errorf("LND did not respond after 120 seconds")
 }
 
-// buildLNDClient creates an HTTP client that pins LND's TLS cert
-// if available, otherwise falls back to InsecureSkipVerify.
 func buildLNDClient() *http.Client {
     tlsConfig := &tls.Config{InsecureSkipVerify: true}
-
     certData, err := os.ReadFile("/var/lib/lnd/tls.cert")
     if err == nil {
         pool := x509.NewCertPool()
@@ -225,7 +228,6 @@ func buildLNDClient() *http.Client {
             tlsConfig = &tls.Config{RootCAs: pool}
         }
     }
-
     return &http.Client{
         Transport: &http.Transport{TLSClientConfig: tlsConfig},
         Timeout:   5 * time.Second,

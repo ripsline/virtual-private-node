@@ -1,23 +1,51 @@
 package installer
 
 import (
+    "encoding/xml"
     "fmt"
     "os"
-    "os/exec"
-    "strings"
 
     "golang.org/x/crypto/bcrypt"
 
     "github.com/ripsline/virtual-private-node/internal/config"
+    "github.com/ripsline/virtual-private-node/internal/system"
 )
+
+// ── Syncthing XML config types ───────────────────────────
+
+type syncthingConfig struct {
+    XMLName xml.Name       `xml:"configuration"`
+    GUI     syncthingGUI   `xml:"gui"`
+    Options syncthingOpts  `xml:"options"`
+    Rest    []byte         `xml:",innerxml"`
+}
+
+type syncthingGUI struct {
+    Enabled               string `xml:"enabled,attr"`
+    TLS                   string `xml:"tls,attr"`
+    Address               string `xml:"address"`
+    User                  string `xml:"user,omitempty"`
+    Password              string `xml:"password,omitempty"`
+    InsecureSkipHostcheck bool   `xml:"insecureSkipHostcheck"`
+    APIKey                string `xml:"apikey,omitempty"`
+    Theme                 string `xml:"theme,omitempty"`
+}
+
+type syncthingOpts struct {
+    ListenAddresses       []string `xml:"listenAddress"`
+    GlobalAnnounceEnabled bool     `xml:"globalAnnounceEnabled"`
+    LocalAnnounceEnabled  bool     `xml:"localAnnounceEnabled"`
+    RelaysEnabled         bool     `xml:"relaysEnabled"`
+    NATEnabled            bool     `xml:"natEnabled"`
+    Rest                  []byte   `xml:",innerxml"`
+}
 
 func installSyncthingRepo() error {
     os.MkdirAll("/etc/apt/keyrings", 0755)
-    cmd := exec.Command("curl", "-L", "-o",
+    if err := system.Run("curl", "-L", "-o",
         "/etc/apt/keyrings/syncthing-archive-keyring.gpg",
-        "https://syncthing.net/release-key.gpg")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("download key: %s: %s", err, output)
+        "https://syncthing.net/release-key.gpg"); err != nil {
+        return err
     }
     repoLine := `deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2`
     return os.WriteFile("/etc/apt/sources.list.d/syncthing.list",
@@ -25,15 +53,10 @@ func installSyncthingRepo() error {
 }
 
 func installSyncthingPackage() error {
-    cmd := exec.Command("apt-get", "update", "-qq")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("apt update: %s: %s", err, output)
+    if err := system.Run("apt-get", "update", "-qq"); err != nil {
+        return err
     }
-    cmd = exec.Command("apt-get", "install", "-y", "-qq", "syncthing")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("install: %s: %s", err, output)
-    }
-    return nil
+    return system.Run("apt-get", "install", "-y", "-qq", "syncthing")
 }
 
 func createSyncthingDirs() error {
@@ -50,8 +73,8 @@ func createSyncthingDirs() error {
         if err := os.MkdirAll(d.path, d.mode); err != nil {
             return err
         }
-        if output, err := exec.Command("chown", d.owner, d.path).CombinedOutput(); err != nil {
-            return fmt.Errorf("chown %s: %s: %s", d.path, err, output)
+        if err := system.Run("chown", d.owner, d.path); err != nil {
+            return err
         }
         os.Chmod(d.path, d.mode)
     }
@@ -82,14 +105,11 @@ WantedBy=multi-user.target
 }
 
 func configureSyncthingAuth(password string) error {
-    exec.Command("chown", systemUser+":"+systemUser,
-        "/etc/syncthing").Run()
+    system.RunSilent("chown", systemUser+":"+systemUser, "/etc/syncthing")
 
-    cmd := exec.Command("sudo", "-u", systemUser, "syncthing",
-        "generate", "--home=/etc/syncthing")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("syncthing generate: %s: %s",
-            err, output)
+    if err := system.Run("sudo", "-u", systemUser, "syncthing",
+        "generate", "--home=/etc/syncthing"); err != nil {
+        return fmt.Errorf("syncthing generate: %w", err)
     }
 
     configPath := "/etc/syncthing/config.xml"
@@ -98,99 +118,43 @@ func configureSyncthingAuth(password string) error {
         return fmt.Errorf("read config: %w", err)
     }
 
-    // Bcrypt hash the password
-    hash, err := bcrypt.GenerateFromPassword(
-        []byte(password), bcrypt.DefaultCost)
+    var cfg syncthingConfig
+    if err := xml.Unmarshal(data, &cfg); err != nil {
+        return fmt.Errorf("parse config: %w", err)
+    }
+
+    // Hash password
+    hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
     if err != nil {
         return fmt.Errorf("hash password: %w", err)
     }
 
-    content := string(data)
+    // Configure GUI
+    cfg.GUI.Address = "127.0.0.1:8384"
+    cfg.GUI.User = "admin"
+    cfg.GUI.Password = string(hash)
+    cfg.GUI.InsecureSkipHostcheck = true
 
-    // Bind GUI to localhost only
-    content = strings.Replace(content,
-        "<address>0.0.0.0:8384</address>",
-        "<address>127.0.0.1:8384</address>", 1)
+    // Disable discovery and relays
+    cfg.Options.GlobalAnnounceEnabled = false
+    cfg.Options.LocalAnnounceEnabled = false
+    cfg.Options.RelaysEnabled = false
+    cfg.Options.NATEnabled = false
+    cfg.Options.ListenAddresses = []string{"tcp://127.0.0.1:22000"}
 
-    // Disable all discovery and relay features.
-    // Both devices are manually paired via Tor.
-    content = strings.Replace(content,
-        "<globalAnnounceEnabled>true</globalAnnounceEnabled>",
-        "<globalAnnounceEnabled>false</globalAnnounceEnabled>", 1)
-    content = strings.Replace(content,
-        "<localAnnounceEnabled>true</localAnnounceEnabled>",
-        "<localAnnounceEnabled>false</localAnnounceEnabled>", 1)
-    content = strings.Replace(content,
-        "<relaysEnabled>true</relaysEnabled>",
-        "<relaysEnabled>false</relaysEnabled>", 1)
-    content = strings.Replace(content,
-        "<natEnabled>true</natEnabled>",
-        "<natEnabled>false</natEnabled>", 1)
+    // Marshal back
+    output, err := xml.MarshalIndent(cfg, "", "    ")
+    if err != nil {
+        return fmt.Errorf("marshal config: %w", err)
+    }
 
-    // Bind sync listener to localhost — only reachable via Tor
-    content = strings.Replace(content,
-        "<listenAddress>default</listenAddress>",
-        "<listenAddress>tcp://127.0.0.1:22000</listenAddress>", 1)
+    xmlHeader := []byte(xml.Header)
+    output = append(xmlHeader, output...)
 
-    // Inject user, hashed password, and hostcheck skip
-    // after the address tag
-    addrTag := "<address>127.0.0.1:8384</address>"
-    injection := fmt.Sprintf(
-        "%s\n        <user>admin</user>\n"+
-            "        <password>%s</password>\n"+
-            "        <insecureSkipHostcheck>true"+
-            "</insecureSkipHostcheck>",
-        addrTag, string(hash))
-    content = strings.Replace(content, addrTag, injection, 1)
-
-    if err := os.WriteFile(configPath,
-        []byte(content), 0640); err != nil {
+    if err := os.WriteFile(configPath, output, 0640); err != nil {
         return err
     }
-    if output, err := exec.Command("chown",
-        systemUser+":"+systemUser,
-        configPath).CombinedOutput(); err != nil {
-        return fmt.Errorf("chown syncthing config: %s: %s",
-            err, output)
-    }
-
-    // Verify config
-    verify, err := os.ReadFile(configPath)
-    if err != nil {
-        return fmt.Errorf("verify syncthing config: %w", err)
-    }
-    verifyStr := string(verify)
-    checks := []struct {
-        contains string
-        desc     string
-    }{
-        {"<address>127.0.0.1:8384</address>",
-            "GUI bind address"},
-        {"<user>admin</user>", "GUI username"},
-        {"<insecureSkipHostcheck>true</insecureSkipHostcheck>",
-            "host check skip for Tor"},
-        {"<globalAnnounceEnabled>false</globalAnnounceEnabled>",
-            "global discovery disabled"},
-        {"<localAnnounceEnabled>false</localAnnounceEnabled>",
-            "local discovery disabled"},
-        {"tcp://127.0.0.1:22000",
-            "sync listener bound to localhost"},
-    }
-    for _, c := range checks {
-        if !strings.Contains(verifyStr, c.contains) {
-            return fmt.Errorf(
-                "syncthing config verification failed: "+
-                    "%s not set", c.desc)
-        }
-    }
-    if !strings.Contains(verifyStr, "<password>$2a$") &&
-        !strings.Contains(verifyStr, "<password>$2b$") {
-        return fmt.Errorf(
-            "syncthing config verification failed: " +
-                "GUI password not set")
-    }
-
-    return nil
+    return system.Run("chown", systemUser+":"+systemUser, configPath)
 }
 
 func setupChannelBackupWatcher(cfg *config.AppConfig) error {
@@ -230,55 +194,30 @@ ExecStart=/bin/cp %s %s
         return err
     }
 
-    for _, args := range [][]string{
-        {"systemctl", "daemon-reload"},
-        {"systemctl", "enable", "lnd-backup-watch.path"},
-        {"systemctl", "start", "lnd-backup-watch.path"},
-    } {
-        cmd := exec.Command(args[0], args[1:]...)
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("%v: %s: %s", args, err, output)
-        }
-    }
-
-    if _, err := os.Stat(backupSource); err == nil {
-        exec.Command("cp", backupSource, backupDest).Run()
-        exec.Command("chown", systemUser+":"+systemUser, backupDest).Run()
-    }
-    return nil
-}
-
-func addSyncthingTorService() error {
-    data, err := os.ReadFile("/etc/tor/torrc")
-    if err != nil {
+    if err := system.Run("systemctl", "daemon-reload"); err != nil {
         return err
     }
-    if strings.Contains(string(data), "syncthing") {
-        return nil
+    if err := system.Run("systemctl", "enable", "lnd-backup-watch.path"); err != nil {
+        return err
     }
-    addition := `
-# Syncthing web UI (Tor only, HTTP)
-HiddenServiceDir /var/lib/tor/syncthing/
-HiddenServicePort 8384 127.0.0.1:8384
+    if err := system.Run("systemctl", "start", "lnd-backup-watch.path"); err != nil {
+        return err
+    }
 
-# Syncthing sync protocol (Tor only)
-HiddenServiceDir /var/lib/tor/syncthing-sync/
-HiddenServicePort 22000 127.0.0.1:22000
-`
-    return os.WriteFile("/etc/tor/torrc",
-        append(data, []byte(addition)...), 0644)
+    // Copy existing backup if present
+    if _, err := os.Stat(backupSource); err == nil {
+        system.RunSilent("cp", backupSource, backupDest)
+        system.RunSilent("chown", systemUser+":"+systemUser, backupDest)
+    }
+    return nil
 }
 
 func startSyncthing() error {
-    for _, args := range [][]string{
-        {"systemctl", "daemon-reload"},
-        {"systemctl", "enable", "syncthing"},
-        {"systemctl", "start", "syncthing"},
-    } {
-        cmd := exec.Command(args[0], args[1:]...)
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("%v: %s: %s", args, err, output)
-        }
+    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+        return err
     }
-    return nil
+    if err := system.Run("systemctl", "enable", "syncthing"); err != nil {
+        return err
+    }
+    return system.Run("systemctl", "start", "syncthing")
 }

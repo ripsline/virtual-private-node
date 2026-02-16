@@ -187,7 +187,7 @@ before running the one-liner.
 
 1. Download & Verify Zeus
 2. Advanced Set-Up
-3. + Create or connect a wallet
+3. Create or connect a wallet
 4. Scan QR: select [r] Pairing tab
 
 #### Sparrow (On-chain — Bitcoin Core RPC over Tor)

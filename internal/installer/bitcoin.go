@@ -3,33 +3,32 @@ package installer
 import (
     "fmt"
     "os"
-    "os/exec"
+
+    "github.com/ripsline/virtual-private-node/internal/config"
+    "github.com/ripsline/virtual-private-node/internal/system"
 )
 
 func downloadBitcoin(version string) error {
     filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
     url := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/%s", version, filename)
     shaURL := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS", version)
-    if err := download(url, "/tmp/"+filename); err != nil {
+    if err := system.Download(url, "/tmp/"+filename); err != nil {
         return err
     }
-    return download(shaURL, "/tmp/SHA256SUMS")
+    return system.Download(shaURL, "/tmp/SHA256SUMS")
 }
 
 func verifyBitcoin(version string) error {
-    cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "SHA256SUMS")
-    cmd.Dir = "/tmp"
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("checksum failed: %s: %s", err, output)
+    if err := system.Run("sha256sum", "--ignore-missing", "--check", "/tmp/SHA256SUMS"); err != nil {
+        return fmt.Errorf("checksum failed: %w", err)
     }
     return nil
 }
 
 func extractAndInstallBitcoin(version string) error {
     filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
-    cmd := exec.Command("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("extract: %s: %s", err, output)
+    if err := system.Run("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp"); err != nil {
+        return err
     }
     extractDir := fmt.Sprintf("/tmp/bitcoin-%s/bin", version)
     entries, err := os.ReadDir(extractDir)
@@ -38,10 +37,8 @@ func extractAndInstallBitcoin(version string) error {
     }
     for _, entry := range entries {
         src := fmt.Sprintf("%s/%s", extractDir, entry.Name())
-        cmd = exec.Command("install", "-m", "0755", "-o", "root", "-g", "root",
-            src, "/usr/local/bin/")
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("install %s: %s: %s", entry.Name(), err, output)
+        if err := system.Run("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
+            return err
         }
     }
     os.Remove("/tmp/" + filename)
@@ -51,11 +48,12 @@ func extractAndInstallBitcoin(version string) error {
     return nil
 }
 
-func writeBitcoinConfig(cfg *installConfig) error {
-    pruneMB := cfg.pruneSize * 1000
-    var content string
+func writeBitcoinConfig(cfg *config.AppConfig) error {
+    net := cfg.NetworkConfig()
+    pruneMB := cfg.PruneSize * 1000
 
-    if cfg.network.Name == "testnet4" {
+    var content string
+    if net.Name == "testnet4" {
         content = fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
 %s
@@ -73,8 +71,8 @@ rpcport=%d
 rpcallowip=127.0.0.1
 zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
-`, cfg.network.BitcoinFlag, pruneMB,
-            cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
+`, net.BitcoinFlag, pruneMB,
+            net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
     } else {
         content = fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
@@ -92,17 +90,13 @@ rpcallowip=127.0.0.1
 zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
 `, pruneMB,
-            cfg.network.RPCPort, cfg.network.ZMQBlockPort, cfg.network.ZMQTxPort)
+            net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
     }
 
     if err := os.WriteFile("/etc/bitcoin/bitcoin.conf", []byte(content), 0640); err != nil {
         return err
     }
-    cmd := exec.Command("chown", "root:"+systemUser, "/etc/bitcoin/bitcoin.conf")
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("%s: %s", err, output)
-    }
-    return nil
+    return system.Run("chown", "root:"+systemUser, "/etc/bitcoin/bitcoin.conf")
 }
 
 func writeBitcoindService(username string) error {
@@ -130,28 +124,11 @@ WantedBy=multi-user.target
 }
 
 func startBitcoind() error {
-    for _, args := range [][]string{
-        {"systemctl", "daemon-reload"},
-        {"systemctl", "enable", "bitcoind"},
-        {"systemctl", "start", "bitcoind"},
-    } {
-        cmd := exec.Command(args[0], args[1:]...)
-        if output, err := cmd.CombinedOutput(); err != nil {
-            return fmt.Errorf("%v: %s: %s", args, err, output)
-        }
+    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+        return err
     }
-    return nil
-}
-
-func download(url, dest string) error {
-    var cmd *exec.Cmd
-    if _, err := exec.LookPath("wget"); err == nil {
-        cmd = exec.Command("wget", "-q", "-O", dest, url)
-    } else {
-        cmd = exec.Command("curl", "-sL", "-o", dest, url)
+    if err := system.Run("systemctl", "enable", "bitcoind"); err != nil {
+        return err
     }
-    if output, err := cmd.CombinedOutput(); err != nil {
-        return fmt.Errorf("download %s: %s: %s", url, err, output)
-    }
-    return nil
+    return system.Run("systemctl", "start", "bitcoind")
 }
