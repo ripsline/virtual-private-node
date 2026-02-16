@@ -3,10 +3,14 @@ package installer
 import (
     "fmt"
     "os"
+    "os/exec"
     "strings"
+    "time"
 
     "github.com/ripsline/virtual-private-node/internal/system"
 )
+
+const verifyLogPath = "/var/log/rlvpn-verification.log"
 
 // ── Trusted signing keys ─────────────────────────────────
 
@@ -62,10 +66,25 @@ var litSigner = struct {
     keyID:       "C20A78516A0944900EBFCA29961CC8259AE675D4",
 }
 
+// ── Verification log ─────────────────────────────────────
+
+func vlog(format string, args ...interface{}) {
+    entry := fmt.Sprintf("[%s] %s\n",
+        time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
+        fmt.Sprintf(format, args...))
+    f, err := os.OpenFile(verifyLogPath,
+        os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        return
+    }
+    defer f.Close()
+    f.WriteString(entry)
+}
+
 // ── GPG setup ────────────────────────────────────────────
 
 func ensureGPG() error {
-    if _, err := system.RunOutput("which", "gpg"); err == nil {
+    if _, err := exec.LookPath("gpg"); err == nil {
         return nil
     }
     return system.Run("apt-get", "install", "-y", "-qq", "gnupg")
@@ -74,80 +93,129 @@ func ensureGPG() error {
 // ── Key import ───────────────────────────────────────────
 
 func importBitcoinCoreKeys() error {
+    vlog("--- Bitcoin Core key import ---")
     imported := 0
     for _, signer := range bitcoinCoreSigners {
         keyFile := fmt.Sprintf("/tmp/btc-key-%s.gpg", signer.name)
         if err := system.Download(signer.keyURL, keyFile); err != nil {
+            vlog("SKIP %s: download failed: %v", signer.name, err)
             continue
         }
-        system.RunSilent("gpg", "--batch", "--import", keyFile)
+
+        cmd := exec.Command("gpg", "--batch", "--import", keyFile)
+        output, _ := cmd.CombinedOutput()
         os.Remove(keyFile)
+
         if gpgHasFingerprint(signer.fingerprint) {
             imported++
+            vlog("OK %s: imported (fingerprint %s)", signer.name, signer.fingerprint)
+        } else {
+            vlog("SKIP %s: fingerprint not found after import: %s", signer.name, string(output))
         }
     }
+
+    vlog("Bitcoin Core keys imported: %d/%d", imported, len(bitcoinCoreSigners))
     if imported == 0 {
+        vlog("FAIL: no Bitcoin Core signing keys imported")
         return fmt.Errorf("could not import any Bitcoin Core signing keys")
     }
     return nil
 }
 
 func importLNDKey() error {
+    vlog("--- LND key import ---")
     keyFile := "/tmp/lnd-key-roasbeef.asc"
     if err := system.Download(lndSigner.keyURL, keyFile); err != nil {
+        vlog("FAIL: download LND signing key: %v", err)
         return fmt.Errorf("download LND signing key: %w", err)
     }
     defer os.Remove(keyFile)
-    if err := system.Run("gpg", "--batch", "--import", keyFile); err != nil {
-        return fmt.Errorf("import LND key: %w", err)
+
+    cmd := exec.Command("gpg", "--batch", "--import", keyFile)
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        vlog("FAIL: import LND key: %s", string(output))
+        return fmt.Errorf("import LND key: %s: %s", err, output)
     }
+
     if !gpgHasFingerprint(lndSigner.fingerprint) {
+        vlog("FAIL: LND key fingerprint mismatch (expected %s)", lndSigner.fingerprint)
         return fmt.Errorf("LND key fingerprint mismatch")
     }
+
+    vlog("OK roasbeef: imported (fingerprint %s)", lndSigner.fingerprint)
     return nil
 }
 
 func importLITKey() error {
-    if err := system.Run("gpg", "--batch", "--keyserver",
-        "hkps://keyserver.ubuntu.com", "--recv-keys", litSigner.keyID); err != nil {
-        return fmt.Errorf("import LIT key: %w", err)
+    vlog("--- LIT key import ---")
+    cmd := exec.Command("gpg", "--batch", "--keyserver",
+        "hkps://keyserver.ubuntu.com", "--recv-keys", litSigner.keyID)
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        vlog("FAIL: import LIT key: %s", string(output))
+        return fmt.Errorf("import LIT key: %s: %s", err, output)
     }
+
     if !gpgHasFingerprint(litSigner.fingerprint) {
+        vlog("FAIL: LIT key fingerprint mismatch (expected %s)", litSigner.fingerprint)
         return fmt.Errorf("LIT key fingerprint mismatch")
     }
+
+    vlog("OK ViktorT-11: imported (fingerprint %s)", litSigner.fingerprint)
     return nil
 }
 
 // ── Signature verification ───────────────────────────────
 
 func verifyBitcoinCoreSigs(minValid int) error {
+    vlog("--- Bitcoin Core signature verification ---")
     sumsFile := "/tmp/SHA256SUMS"
     sigFile := "/tmp/SHA256SUMS.asc"
 
     if _, err := os.Stat(sumsFile); err != nil {
+        vlog("FAIL: SHA256SUMS not found")
         return fmt.Errorf("SHA256SUMS not found")
     }
     if _, err := os.Stat(sigFile); err != nil {
+        vlog("FAIL: SHA256SUMS.asc not found")
         return fmt.Errorf("SHA256SUMS.asc not found")
     }
 
-    output, _ := system.RunOutput("gpg", "--batch", "--verify",
+    cmd := exec.Command("gpg", "--batch", "--verify",
         "--status-fd", "1", sigFile, sumsFile)
+    output, _ := cmd.CombinedOutput()
+    outputStr := string(output)
 
-    validCount := strings.Count(output, "GOODSIG")
+    validCount := strings.Count(outputStr, "GOODSIG")
+
+    // Log each GOODSIG line
+    for _, line := range strings.Split(outputStr, "\n") {
+        if strings.Contains(line, "GOODSIG") {
+            vlog("GOODSIG: %s", strings.TrimSpace(line))
+        }
+    }
+
+    vlog("Bitcoin Core valid signatures: %d/%d required", validCount, minValid)
+
     if validCount < minValid {
+        vlog("FAIL: insufficient valid signatures: got %d, need %d", validCount, minValid)
         return fmt.Errorf(
             "insufficient valid signatures: got %d, need %d",
             validCount, minValid)
     }
+
+    vlog("OK Bitcoin Core: %d valid signatures", validCount)
     return nil
 }
 
 func verifyLNDSig(version string) error {
+    vlog("--- LND signature verification ---")
     manifestFile := "/tmp/manifest.txt"
     sigFile := fmt.Sprintf("/tmp/manifest-roasbeef-v%s.sig", version)
 
     if _, err := os.Stat(manifestFile); err != nil {
+        vlog("FAIL: LND manifest not found")
         return fmt.Errorf("LND manifest not found at %s", manifestFile)
     }
 
@@ -155,26 +223,39 @@ func verifyLNDSig(version string) error {
         "https://github.com/lightningnetwork/lnd/releases/download/v%s/manifest-roasbeef-v%s.sig",
         version, version)
     if err := system.Download(sigURL, sigFile); err != nil {
+        vlog("FAIL: download LND signature: %v", err)
         return fmt.Errorf("download LND signature: %w", err)
     }
     defer os.Remove(sigFile)
 
-    output, err := system.RunOutput("gpg", "--batch", "--verify",
+    cmd := exec.Command("gpg", "--batch", "--verify",
         "--status-fd", "1", sigFile, manifestFile)
-    if err != nil {
-        return fmt.Errorf("LND signature verification failed: %s", output)
+    output, _ := cmd.CombinedOutput()
+    outputStr := string(output)
+
+    if !strings.Contains(outputStr, "GOODSIG") {
+        vlog("FAIL: LND signature invalid: %s", outputStr)
+        return fmt.Errorf("LND signature verification failed")
     }
-    if !strings.Contains(output, "GOODSIG") {
-        return fmt.Errorf("LND signature invalid")
+
+    // Log the GOODSIG line
+    for _, line := range strings.Split(outputStr, "\n") {
+        if strings.Contains(line, "GOODSIG") {
+            vlog("GOODSIG: %s", strings.TrimSpace(line))
+        }
     }
+
+    vlog("OK LND: signature valid")
     return nil
 }
 
 func verifyLITSig(version string) error {
+    vlog("--- LIT signature verification ---")
     manifestFile := "/tmp/lit-manifest.txt"
     sigFile := fmt.Sprintf("/tmp/manifest-ViktorT-11-v%s.sig", version)
 
     if _, err := os.Stat(manifestFile); err != nil {
+        vlog("FAIL: LIT manifest not found")
         return fmt.Errorf("LIT manifest not found at %s", manifestFile)
     }
 
@@ -182,30 +263,90 @@ func verifyLITSig(version string) error {
         "https://github.com/lightninglabs/lightning-terminal/releases/download/v%s/manifest-ViktorT-11-v%s.sig",
         version, version)
     if err := system.Download(sigURL, sigFile); err != nil {
+        vlog("FAIL: download LIT signature: %v", err)
         return fmt.Errorf("download LIT signature: %w", err)
     }
     defer os.Remove(sigFile)
 
-    output, err := system.RunOutput("gpg", "--batch", "--verify",
+    cmd := exec.Command("gpg", "--batch", "--verify",
         "--status-fd", "1", sigFile, manifestFile)
+    output, _ := cmd.CombinedOutput()
+    outputStr := string(output)
+
+    if !strings.Contains(outputStr, "GOODSIG") {
+        vlog("FAIL: LIT signature invalid: %s", outputStr)
+        return fmt.Errorf("LIT signature verification failed")
+    }
+
+    for _, line := range strings.Split(outputStr, "\n") {
+        if strings.Contains(line, "GOODSIG") {
+            vlog("GOODSIG: %s", strings.TrimSpace(line))
+        }
+    }
+
+    vlog("OK LIT: signature valid")
+    return nil
+}
+
+// ── Checksum verification ────────────────────────────────
+
+func verifyBitcoin(version string) error {
+    vlog("--- Bitcoin Core checksum verification ---")
+    cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "SHA256SUMS")
+    cmd.Dir = "/tmp"
+    output, err := cmd.CombinedOutput()
     if err != nil {
-        return fmt.Errorf("LIT signature verification failed: %s", output)
+        vlog("FAIL: Bitcoin Core checksum: %s", string(output))
+        return fmt.Errorf("checksum failed: %s: %s", err, output)
     }
-    if !strings.Contains(output, "GOODSIG") {
-        return fmt.Errorf("LIT signature invalid")
+    vlog("OK Bitcoin Core checksum: %s", strings.TrimSpace(string(output)))
+    return nil
+}
+
+func verifyLND(version string) error {
+    vlog("--- LND checksum verification ---")
+    if _, err := os.Stat("/tmp/manifest.txt"); err != nil {
+        vlog("FAIL: LND manifest not found")
+        return fmt.Errorf("LND manifest not found")
     }
+    cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "manifest.txt")
+    cmd.Dir = "/tmp"
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        vlog("FAIL: LND checksum: %s", string(output))
+        return fmt.Errorf("checksum failed: %s: %s", err, output)
+    }
+    vlog("OK LND checksum: %s", strings.TrimSpace(string(output)))
+    return nil
+}
+
+func verifyLIT(version string) error {
+    vlog("--- LIT checksum verification ---")
+    if _, err := os.Stat("/tmp/lit-manifest.txt"); err != nil {
+        vlog("FAIL: LIT manifest not found")
+        return fmt.Errorf("LIT manifest not found")
+    }
+    cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "lit-manifest.txt")
+    cmd.Dir = "/tmp"
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        vlog("FAIL: LIT checksum: %s", string(output))
+        return fmt.Errorf("checksum failed: %s: %s", err, output)
+    }
+    vlog("OK LIT checksum: %s", strings.TrimSpace(string(output)))
     return nil
 }
 
 // ── Helpers ──────────────────────────────────────────────
 
 func gpgHasFingerprint(fingerprint string) bool {
-    output, err := system.RunOutput("gpg", "--batch", "--list-keys",
+    cmd := exec.Command("gpg", "--batch", "--list-keys",
         "--with-colons", fingerprint)
+    output, err := cmd.CombinedOutput()
     if err != nil {
         return false
     }
-    return strings.Contains(output, fingerprint)
+    return strings.Contains(string(output), fingerprint)
 }
 
 func downloadBitcoinSigFile(version string) error {

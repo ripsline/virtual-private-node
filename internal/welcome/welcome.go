@@ -16,7 +16,6 @@ type wTab int
 const (
     tabDashboard wTab = iota
     tabPairing
-    tabLogs
     tabAddons
     tabSettings
 )
@@ -28,6 +27,8 @@ const (
     svLightning
     svZeus
     svSparrow
+    svSyncthingDetail
+    svLITDetail
     svQR
     svFullURL
     svWalletCreate
@@ -37,66 +38,63 @@ const (
     svSystemUpdate
     svLogView
     svMacaroonShell
-    svPruneChange
+    svSelfUpdate
 )
 
 type cardPos int
 
 const (
-    cardServices cardPos = iota
+    cardServices  cardPos = iota
     cardSystem
     cardBitcoin
     cardLightning
-    cardSyncthing
-    cardLIT
-)
-
-type logSelection int
-
-const (
-    logSelTor logSelection = iota
-    logSelBitcoin
-    logSelLND
-    logSelLIT
-    logSelSyncthing
 )
 
 // ── Messages ─────────────────────────────────────────────
 
 type svcActionDoneMsg struct{}
 type tickMsg time.Time
+type latestVersionMsg string
 
 type statusMsg struct {
-    services                            map[string]bool
-    diskTotal, diskUsed, diskPct        string
-    ramTotal, ramUsed, ramPct           string
-    btcSize, lndSize                    string
-    btcBlocks, btcHeaders               int
-    btcProgress                         float64
-    btcSynced, btcResponding            bool
-    rebootRequired                      bool
+    services                     map[string]bool
+    diskTotal, diskUsed, diskPct string
+    ramTotal, ramUsed, ramPct    string
+    btcSize, lndSize             string
+    btcBlocks, btcHeaders        int
+    btcProgress                  float64
+    btcSynced, btcResponding     bool
+    rebootRequired               bool
 }
 
 // ── Model ────────────────────────────────────────────────
 
 type Model struct {
-    cfg          *config.AppConfig
-    version      string
-    activeTab    wTab
-    subview      wSubview
-    dashCard     cardPos
-    cardActive   bool
-    svcCursor    int
-    svcConfirm   string
-    sysConfirm   string
-    logSel       logSelection
-    addonFocus   int
-    pairingFocus int
-    urlTarget    string
-    width        int
-    height       int
-    shellAction  wSubview
-    status       *statusMsg
+    cfg                 *config.AppConfig
+    version             string
+    activeTab           wTab
+    subview             wSubview
+    dashCard            cardPos
+    cardActive          bool
+    svcCursor           int
+    svcConfirm          string
+    sysConfirm          string
+    logSvcName          string
+    addonFocus          int
+    pairingFocus        int
+    urlTarget           string
+    width               int
+    height              int
+    shellAction         wSubview
+    status              *statusMsg
+    settingsFocus       int
+    settingsCursor      int
+    settingsCustom      bool
+    settingsInput       string
+    settingsConfirm     string
+    settingsPendingSize int
+    latestVersion       string
+    updateConfirm       bool
 }
 
 func NewModel(cfg *config.AppConfig, version string) Model {
@@ -148,7 +146,10 @@ func Show(cfg *config.AppConfig, version string) {
             runSystemUpdate()
             continue
         case svLogView:
-            runLogViewer(final.logSel, cfg)
+            runLogViewer(final.logSvcName, cfg)
+            continue
+        case svSelfUpdate:
+            installer.RunSelfUpdate(cfg, final.latestVersion)
             continue
         default:
             return
@@ -159,6 +160,7 @@ func Show(cfg *config.AppConfig, version string) {
 func (m Model) Init() tea.Cmd {
     return tea.Batch(
         fetchStatus(m.cfg),
+        fetchLatestVersion(),
         tickEvery(5*time.Second),
     )
 }
@@ -167,4 +169,11 @@ func tickEvery(d time.Duration) tea.Cmd {
     return tea.Tick(d, func(t time.Time) tea.Msg {
         return tickMsg(t)
     })
+}
+
+func fetchLatestVersion() tea.Cmd {
+    return func() tea.Msg {
+        v := installer.CheckLatestVersion()
+        return latestVersionMsg(v)
+    }
 }

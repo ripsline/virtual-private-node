@@ -26,16 +26,6 @@ func downloadLIT(version string) error {
     return nil
 }
 
-func verifyLIT(version string) error {
-    if _, err := os.Stat("/tmp/lit-manifest.txt"); err != nil {
-        return fmt.Errorf("LIT manifest not found")
-    }
-    if err := system.Run("sha256sum", "--ignore-missing", "--check", "/tmp/lit-manifest.txt"); err != nil {
-        return fmt.Errorf("checksum failed: %w", err)
-    }
-    return nil
-}
-
 func extractAndInstallLIT(version string) error {
     filename := fmt.Sprintf("lightning-terminal-linux-amd64-v%s.tar.gz", version)
     if err := system.Run("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp"); err != nil {

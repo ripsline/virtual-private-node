@@ -2,53 +2,30 @@ package welcome
 
 import (
     "fmt"
+    "strings"
 
     "github.com/charmbracelet/lipgloss"
 
     "github.com/ripsline/virtual-private-node/internal/bitcoin"
+    "github.com/ripsline/virtual-private-node/internal/lnd"
     "github.com/ripsline/virtual-private-node/internal/theme"
 )
 
 func (m Model) viewDashboard(bw int) string {
-    cards := m.visibleCards()
     halfW := (bw - 4) / 2
     cardH := theme.BoxHeight / 2
 
-    var rows []string
-    for i := 0; i < len(cards); i += 2 {
-        left := m.renderCard(cards[i], halfW, cardH)
-        if i+1 < len(cards) {
-            right := m.renderCard(cards[i+1], halfW, cardH)
-            rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right))
-        } else {
-            rows = append(rows, left)
-        }
-    }
-    return lipgloss.JoinVertical(lipgloss.Left, rows...)
+    svc := m.cardServicesView(halfW, cardH)
+    sys := m.cardSystemView(halfW, cardH)
+    btc := m.cardBitcoinView(halfW, cardH)
+    ln := m.cardLightningView(halfW, cardH)
+
+    top := lipgloss.JoinHorizontal(lipgloss.Top, svc, "  ", sys)
+    bot := lipgloss.JoinHorizontal(lipgloss.Top, btc, "  ", ln)
+    return lipgloss.JoinVertical(lipgloss.Left, top, "", bot)
 }
 
-func (m Model) renderCard(pos cardPos, w, h int) string {
-    switch pos {
-    case cardServices:
-        return m.cardServicesView(w, h)
-    case cardSystem:
-        return m.cardSystemView(w, h)
-    case cardBitcoin:
-        return m.cardBitcoinView(w, h)
-    case cardLightning:
-        return m.cardLightningView(w, h)
-    case cardSyncthing:
-        return m.cardSyncthingView(w, h)
-    case cardLIT:
-        return m.cardLITView(w, h)
-    }
-    return ""
-}
-
-func (m Model) getBorder(pos cardPos, enabled bool) lipgloss.Style {
-    if !enabled {
-        return theme.GrayedBorder
-    }
+func (m Model) getBorder(pos cardPos) lipgloss.Style {
     if m.activeTab == tabDashboard && m.dashCard == pos {
         return theme.SelectedBorder
     }
@@ -94,11 +71,11 @@ func (m Model) cardServicesView(w, h int) string {
             lines = append(lines, theme.Warning.Render(
                 fmt.Sprintf("%s %s? [y/n]", m.svcConfirm, svc)))
         } else {
-            lines = append(lines, theme.Dim.Render("[r]estart [s]top [a]start"))
+            lines = append(lines, theme.Dim.Render("[r]estart [s]top [a]start [l]ogs"))
         }
     }
 
-    return m.getBorder(cardServices, true).Width(w).
+    return m.getBorder(cardServices).Width(w).
         Padding(0, 1).Render(padLines(lines, h))
 }
 
@@ -132,16 +109,16 @@ func (m Model) cardSystemView(w, h int) string {
         } else {
             lines = append(lines, theme.Action.Render("[u]pdate packages"))
             if m.status != nil && m.status.rebootRequired {
-                lines = append(lines, theme.Warning.Render("⚠️ Reboot required"))
+                lines = append(lines, theme.Warning.Render("⚠ Reboot required"))
                 lines = append(lines, theme.Action.Render("[r]eboot"))
             }
         }
     } else if m.status != nil && m.status.rebootRequired {
         lines = append(lines, "")
-        lines = append(lines, theme.Warning.Render("⚠️ Reboot required"))
+        lines = append(lines, theme.Warning.Render("⚠ Reboot required"))
     }
 
-    return m.getBorder(cardSystem, true).Width(w).
+    return m.getBorder(cardSystem).Width(w).
         Padding(0, 1).Render(padLines(lines, h))
 }
 
@@ -173,7 +150,7 @@ func (m Model) cardBitcoinView(w, h int) string {
             theme.Value.Render(m.cfg.Network))
     }
 
-    return m.getBorder(cardBitcoin, true).Width(w).
+    return m.getBorder(cardBitcoin).Width(w).
         Padding(0, 1).Render(padLines(lines, h))
 }
 
@@ -182,43 +159,87 @@ func (m Model) cardLightningView(w, h int) string {
     lines = append(lines, theme.Lightning.Render("⚡️ Lightning"))
     lines = append(lines, "")
 
-    if !m.cfg.WalletExists() {
+    if !m.cfg.HasLND() {
+        lines = append(lines, theme.Grayed.Render("LND not installed"))
+        lines = append(lines, "")
+        lines = append(lines, theme.Action.Render("Select to install ▸"))
+    } else if !m.cfg.WalletExists() {
         lines = append(lines, theme.Label.Render("Wallet: ")+
             theme.Warning.Render("not created"))
+        lines = append(lines, theme.Label.Render("P2P: ")+
+            theme.Value.Render(p2pModeLabel(m.cfg.P2PMode)))
         lines = append(lines, "")
         lines = append(lines, theme.Action.Render("Select to create ▸"))
     } else {
         lines = append(lines, theme.Label.Render("Wallet: ")+
-            theme.Good.Render("created"))
+            theme.Success.Render("created"))
         if m.cfg.AutoUnlock {
             lines = append(lines, theme.Label.Render("Auto-unlock: ")+
-                theme.Good.Render("enabled"))
+                theme.Success.Render("enabled"))
         }
+        lines = append(lines, theme.Label.Render("P2P: ")+
+            theme.Value.Render(p2pModeLabel(m.cfg.P2PMode)))
         lines = append(lines, "")
         lines = append(lines, theme.Action.Render("Select for details ▸"))
     }
 
-    return m.getBorder(cardLightning, true).Width(w).
+    return m.getBorder(cardLightning).Width(w).
         Padding(0, 1).Render(padLines(lines, h))
 }
 
-func (m Model) cardSyncthingView(w, h int) string {
+// viewLightning is the detail subview for Lightning
+func (m Model) viewLightning() string {
+    bw := min(m.width-4, theme.ContentWidth)
     var lines []string
-    lines = append(lines, theme.Header.Render("🔄 Syncthing"))
+    lines = append(lines, theme.Lightning.Render("⚡️ Lightning Node"))
     lines = append(lines, "")
-    lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Running"))
-    if m.cfg.SyncthingPassword != "" {
-        lines = append(lines, theme.Label.Render("User: ")+theme.Mono.Render("admin"))
+
+    if m.cfg.WalletExists() {
+        lines = append(lines, "  "+theme.Label.Render("Status: ")+
+            theme.Success.Render("created"))
+        if m.cfg.AutoUnlock {
+            lines = append(lines, "  "+theme.Label.Render("Auto-unlock: ")+
+                theme.Success.Render("enabled"))
+        }
+        lines = append(lines, "  "+theme.Label.Render("P2P Mode: ")+
+            theme.Value.Render(p2pModeLabel(m.cfg.P2PMode)))
+
+        bal, err := lnd.GetBalance(m.cfg.Network)
+        if err == nil && bal.TotalBalance != "" {
+            lines = append(lines, "  "+theme.Label.Render("Balance: ")+
+                theme.Value.Render(bal.TotalBalance+" sats"))
+        }
+
+        info, err := lnd.GetInfo(m.cfg.Network)
+        if err == nil {
+            if info.Channels > 0 {
+                lines = append(lines, "  "+theme.Label.Render("Channels: ")+
+                    theme.Value.Render(fmt.Sprintf("%d", info.Channels)))
+            }
+            if info.Pubkey != "" {
+                lines = append(lines, "")
+                lines = append(lines, "  "+theme.Label.Render("Pubkey:"))
+                lines = append(lines, "  "+theme.Mono.Render(info.Pubkey))
+            }
+        }
+    } else {
+        lines = append(lines, "  "+theme.Warning.Render("Wallet not created"))
     }
-    return m.getBorder(cardSyncthing, true).Width(w).
-        Padding(0, 1).Render(padLines(lines, h))
+
+    content := strings.Join(lines, "\n")
+    box := theme.Box.Width(bw).Padding(1, 2).Render(content)
+    title := theme.Title.Width(bw).Align(lipgloss.Center).
+        Render(" ⚡️ Lightning Details ")
+    footer := theme.Footer.Render("  backspace back • q quit  ")
+    full := lipgloss.JoinVertical(lipgloss.Center,
+        "", title, "", box, "", footer)
+    return lipgloss.Place(m.width, m.height,
+        lipgloss.Center, lipgloss.Center, full)
 }
 
-func (m Model) cardLITView(w, h int) string {
-    var lines []string
-    lines = append(lines, theme.Lightning.Render("⚡️ Lightning Terminal"))
-    lines = append(lines, "")
-    lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Running"))
-    return m.getBorder(cardLIT, true).Width(w).
-        Padding(0, 1).Render(padLines(lines, h))
+func p2pModeLabel(mode string) string {
+    if mode == "hybrid" {
+        return "Tor + clearnet"
+    }
+    return "Tor only"
 }

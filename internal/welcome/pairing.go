@@ -14,61 +14,74 @@ import (
 
 func (m Model) viewPairing(bw int) string {
     halfW := (bw - 4) / 2
-    cardH := theme.BoxHeight
+    cardH := theme.BoxHeight / 2
 
-    // Zeus card
-    var zeusLines []string
+    zeusCard := m.zeusCard(halfW, cardH)
+    sparrowCard := m.sparrowCard(halfW, cardH)
+
+    top := lipgloss.JoinHorizontal(lipgloss.Top, zeusCard, "  ", sparrowCard)
+    return top
+}
+
+func (m Model) zeusCard(w, h int) string {
+    var lines []string
     zeusEnabled := m.cfg.HasLND() && m.cfg.WalletExists()
+
     if zeusEnabled {
         restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
-        status := theme.GreenDot.Render("●") + " ready"
-        if restOnion == "" {
-            status = theme.RedDot.Render("●") + " waiting"
+        lines = append(lines, theme.Lightning.Render("⚡️ Zeus Wallet"))
+        lines = append(lines, "")
+        lines = append(lines, theme.Dim.Render("LND REST over Tor"))
+        lines = append(lines, "")
+        if restOnion != "" {
+            lines = append(lines, theme.GreenDot.Render("●")+" ready")
+        } else {
+            lines = append(lines, theme.RedDot.Render("●")+" waiting for Tor")
         }
-        zeusLines = []string{
-            theme.Lightning.Render("⚡️ Zeus Wallet"), "",
-            theme.Dim.Render("LND REST over Tor"), "",
-            status, "", theme.Action.Render("Select for setup ▸"),
-        }
+        lines = append(lines, "")
+        lines = append(lines, theme.Action.Render("Select for setup ▸"))
     } else if m.cfg.HasLND() {
-        zeusLines = []string{
-            theme.Grayed.Render("⚡️ Zeus Wallet"), "",
-            theme.Grayed.Render("Create LND wallet first"),
-        }
+        lines = append(lines, theme.Grayed.Render("⚡️ Zeus Wallet"))
+        lines = append(lines, "")
+        lines = append(lines, theme.Grayed.Render("Create LND wallet first"))
     } else {
-        zeusLines = []string{
-            theme.Grayed.Render("⚡️ Zeus Wallet"), "",
-            theme.Grayed.Render("Install LND from Add-ons"),
-        }
+        lines = append(lines, theme.Grayed.Render("⚡️ Zeus Wallet"))
+        lines = append(lines, "")
+        lines = append(lines, theme.Grayed.Render("Install LND from Dashboard"))
     }
-    zBorder := theme.NormalBorder
+
+    border := theme.NormalBorder
     if m.pairingFocus == 0 {
         if zeusEnabled {
-            zBorder = theme.SelectedBorder
+            border = theme.SelectedBorder
         } else {
-            zBorder = theme.GrayedBorder
+            border = theme.GrayedBorder
         }
     }
-    zeusCard := zBorder.Width(halfW).Padding(1, 2).Render(padLines(zeusLines, cardH))
+    return border.Width(w).Padding(1, 2).Render(padLines(lines, h))
+}
 
-    // Sparrow card
+func (m Model) sparrowCard(w, h int) string {
+    var lines []string
     btcRPC := readOnion("/var/lib/tor/bitcoin-rpc/hostname")
-    sStatus := theme.GreenDot.Render("●") + " ready"
-    if btcRPC == "" {
-        sStatus = theme.RedDot.Render("●") + " waiting"
-    }
-    sparrowLines := []string{
-        theme.Bitcoin.Render("₿ Sparrow Wallet"), "",
-        theme.Dim.Render("Bitcoin Core RPC / Tor"), "",
-        sStatus, "", theme.Action.Render("Select for setup ▸"),
-    }
-    sBorder := theme.NormalBorder
-    if m.pairingFocus == 1 {
-        sBorder = theme.SelectedBorder
-    }
-    sparrowCard := sBorder.Width(halfW).Padding(1, 2).Render(padLines(sparrowLines, cardH))
 
-    return lipgloss.JoinHorizontal(lipgloss.Top, zeusCard, "  ", sparrowCard)
+    lines = append(lines, theme.Bitcoin.Render("₿ Sparrow Wallet"))
+    lines = append(lines, "")
+    lines = append(lines, theme.Dim.Render("Bitcoin Core RPC / Tor"))
+    lines = append(lines, "")
+    if btcRPC != "" {
+        lines = append(lines, theme.GreenDot.Render("●")+" ready")
+    } else {
+        lines = append(lines, theme.RedDot.Render("●")+" waiting for Tor")
+    }
+    lines = append(lines, "")
+    lines = append(lines, theme.Action.Render("Select for setup ▸"))
+
+    border := theme.NormalBorder
+    if m.pairingFocus == 1 {
+        border = theme.SelectedBorder
+    }
+    return border.Width(w).Padding(1, 2).Render(padLines(lines, h))
 }
 
 func (m Model) viewZeus() string {
@@ -98,8 +111,8 @@ func (m Model) viewZeus() string {
     lines = append(lines, "")
     lines = append(lines, theme.Dim.Render("1. download & verify Zeus"))
     lines = append(lines, theme.Dim.Render("2. Advanced Set-Up"))
-    lines = append(lines, theme.Dim.Render("3. + Create or connect a wallet"))
-    lines = append(lines, theme.Dim.Render("4. Server address, REST Port, Macaroon (Hex format) above"))
+    lines = append(lines, theme.Dim.Render("3. Create or connect a wallet"))
+    lines = append(lines, theme.Dim.Render("4. Server address, REST Port, Macaroon above"))
 
     box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
     title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" Zeus Wallet Setup ")

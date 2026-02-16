@@ -20,6 +20,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case statusMsg:
         m.status = &msg
         return m, nil
+    case latestVersionMsg:
+        m.latestVersion = string(msg)
+        return m, nil
     case tickMsg:
         return m, tea.Batch(
             fetchStatus(m.cfg),
@@ -42,6 +45,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
             case svQR:
                 m.subview = svZeus
             case svFullURL:
+                if m.urlTarget != "" {
+                    // Return to whichever detail screen launched the URL
+                    m.subview = svNone
+                }
+                m.subview = svNone
+            case svSyncthingDetail:
+                m.subview = svNone
+            case svLITDetail:
                 m.subview = svNone
             default:
                 m.subview = svNone
@@ -57,6 +68,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
                 m.subview = svQR
                 return m, nil
             }
+        case "u":
+            if m.subview == svSyncthingDetail {
+                syncOnion := readOnion("/var/lib/tor/syncthing/hostname")
+                if syncOnion != "" {
+                    m.urlTarget = "http://" + syncOnion + ":8384"
+                    m.subview = svFullURL
+                }
+                return m, nil
+            }
+            if m.subview == svLITDetail {
+                litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
+                if litOnion != "" {
+                    m.urlTarget = "https://" + litOnion + ":8443"
+                    m.subview = svFullURL
+                }
+                return m, nil
+            }
         }
         return m, nil
     }
@@ -66,17 +94,40 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
         return m.handleCardKey(key)
     }
 
+    // Settings tab handles its own keys
+    if m.activeTab == tabSettings {
+        switch key {
+        case "q", "ctrl+c":
+            return m, tea.Quit
+        case "tab":
+            m.activeTab = (m.activeTab + 1) % 4
+            m.settingsCustom = false
+            m.settingsConfirm = ""
+            m.updateConfirm = false
+            return m, nil
+        case "shift+tab":
+            m.activeTab = (m.activeTab + 3) % 4
+            m.settingsCustom = false
+            m.settingsConfirm = ""
+            m.updateConfirm = false
+            return m, nil
+        default:
+            m = handleSettingsKey(m, key)
+            return m, nil
+        }
+    }
+
     // Main navigation
     switch key {
     case "q", "ctrl+c":
         return m, tea.Quit
     case "tab":
-        m.activeTab = (m.activeTab + 1) % 5
+        m.activeTab = (m.activeTab + 1) % 4
         m.cardActive = false
         m.svcConfirm = ""
         return m, nil
     case "shift+tab":
-        m.activeTab = (m.activeTab + 4) % 5
+        m.activeTab = (m.activeTab + 3) % 4
         m.cardActive = false
         m.svcConfirm = ""
         return m, nil
@@ -85,10 +136,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
     case "2":
         m.activeTab = tabPairing
     case "3":
-        m.activeTab = tabLogs
-    case "4":
         m.activeTab = tabAddons
-    case "5":
+    case "4":
         m.activeTab = tabSettings
     case "up", "k":
         m = m.navUp()
@@ -114,13 +163,13 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
     case "q":
         return m, tea.Quit
     case "tab":
-        m.activeTab = (m.activeTab + 1) % 5
+        m.activeTab = (m.activeTab + 1) % 4
         m.cardActive = false
         m.svcConfirm = ""
         m.sysConfirm = ""
         return m, nil
     case "shift+tab":
-        m.activeTab = (m.activeTab + 4) % 5
+        m.activeTab = (m.activeTab + 3) % 4
         m.cardActive = false
         m.svcConfirm = ""
         m.sysConfirm = ""
@@ -158,6 +207,11 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
             m.svcConfirm = "stop"
         case "a":
             m.svcConfirm = "start"
+        case "l":
+            m.logSvcName = m.svcName(m.svcCursor)
+            m.shellAction = svLogView
+            m.cardActive = false
+            return m, tea.Quit
         }
     }
 
@@ -199,15 +253,10 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 func (m Model) navUp() Model {
     switch m.activeTab {
     case tabDashboard:
-        cards := m.visibleCards()
-        m.dashCard = gridUp(cards, m.dashCard)
-    case tabLogs:
-        avail := m.availableLogs()
-        for i, sel := range avail {
-            if sel == m.logSel && i > 0 {
-                m.logSel = avail[i-1]
-                break
-            }
+        if m.dashCard == cardBitcoin {
+            m.dashCard = cardServices
+        } else if m.dashCard == cardLightning {
+            m.dashCard = cardSystem
         }
     }
     return m
@@ -216,15 +265,10 @@ func (m Model) navUp() Model {
 func (m Model) navDown() Model {
     switch m.activeTab {
     case tabDashboard:
-        cards := m.visibleCards()
-        m.dashCard = gridDown(cards, m.dashCard)
-    case tabLogs:
-        avail := m.availableLogs()
-        for i, sel := range avail {
-            if sel == m.logSel && i+1 < len(avail) {
-                m.logSel = avail[i+1]
-                break
-            }
+        if m.dashCard == cardServices {
+            m.dashCard = cardBitcoin
+        } else if m.dashCard == cardSystem {
+            m.dashCard = cardLightning
         }
     }
     return m
@@ -233,12 +277,17 @@ func (m Model) navDown() Model {
 func (m Model) navLeft() Model {
     switch m.activeTab {
     case tabDashboard:
-        cards := m.visibleCards()
-        m.dashCard = gridLeft(cards, m.dashCard)
+        if m.dashCard == cardSystem {
+            m.dashCard = cardServices
+        } else if m.dashCard == cardLightning {
+            m.dashCard = cardBitcoin
+        }
     case tabPairing:
         m.pairingFocus = 0
     case tabAddons:
         m.addonFocus = 0
+    case tabSettings:
+        m.settingsFocus = 0
     }
     return m
 }
@@ -246,15 +295,17 @@ func (m Model) navLeft() Model {
 func (m Model) navRight() Model {
     switch m.activeTab {
     case tabDashboard:
-        cards := m.visibleCards()
-        m.dashCard = gridRight(cards, m.dashCard)
+        if m.dashCard == cardServices {
+            m.dashCard = cardSystem
+        } else if m.dashCard == cardBitcoin {
+            m.dashCard = cardLightning
+        }
     case tabPairing:
         m.pairingFocus = 1
     case tabAddons:
-        maxFocus := m.addonMaxFocus()
-        if m.addonFocus < maxFocus {
-            m.addonFocus++
-        }
+        m.addonFocus = 1
+    case tabSettings:
+        m.settingsFocus = 1
     }
     return m
 }
@@ -272,7 +323,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
             return m, nil
         case cardLightning:
             if !m.cfg.HasLND() {
-                return m, nil
+                m.shellAction = svLNDInstall
+                return m, tea.Quit
             }
             if !m.cfg.WalletExists() {
                 m.shellAction = svWalletCreate
@@ -286,33 +338,19 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
         } else if m.pairingFocus == 1 {
             m.subview = svSparrow
         }
-    case tabLogs:
-        m.shellAction = svLogView
-        return m, tea.Quit
     case tabAddons:
         return m.handleAddonEnter()
     case tabSettings:
-        m.shellAction = svPruneChange
-        return m, tea.Quit
+        // Handled by handleSettingsKey
     }
     return m, nil
 }
 
 func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
     switch m.addonFocus {
-    case 0: // LND
-        if m.cfg.HasLND() {
-            return m, nil // already installed
-        }
-        m.shellAction = svLNDInstall
-        return m, tea.Quit
-    case 1: // Syncthing
+    case 0: // Syncthing
         if m.cfg.SyncthingInstalled {
-            syncOnion := readOnion("/var/lib/tor/syncthing/hostname")
-            if syncOnion != "" {
-                m.urlTarget = "http://" + syncOnion + ":8384"
-                m.subview = svFullURL
-            }
+            m.subview = svSyncthingDetail
             return m, nil
         }
         if !m.cfg.HasLND() || !m.cfg.WalletExists() {
@@ -320,13 +358,9 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
         }
         m.shellAction = svSyncthingInstall
         return m, tea.Quit
-    case 2: // LIT
+    case 1: // LIT
         if m.cfg.LITInstalled {
-            litOnion := readOnion("/var/lib/tor/lnd-lit/hostname")
-            if litOnion != "" {
-                m.urlTarget = "https://" + litOnion + ":8443"
-                m.subview = svFullURL
-            }
+            m.subview = svLITDetail
             return m, nil
         }
         if !m.cfg.HasLND() || !m.cfg.WalletExists() {
@@ -336,70 +370,6 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
         return m, tea.Quit
     }
     return m, nil
-}
-
-func (m Model) addonMaxFocus() int {
-    // LND, Syncthing, LIT
-    return 2
-}
-
-// ── Grid navigation helpers ──────────────────────────────
-
-func (m Model) visibleCards() []cardPos {
-    cards := []cardPos{cardServices, cardSystem, cardBitcoin}
-    if m.cfg.HasLND() {
-        cards = append(cards, cardLightning)
-    }
-    if m.cfg.SyncthingInstalled {
-        cards = append(cards, cardSyncthing)
-    }
-    if m.cfg.LITInstalled {
-        cards = append(cards, cardLIT)
-    }
-    return cards
-}
-
-func gridIndex(cards []cardPos, pos cardPos) int {
-    for i, c := range cards {
-        if c == pos {
-            return i
-        }
-    }
-    return 0
-}
-
-func gridUp(cards []cardPos, pos cardPos) cardPos {
-    idx := gridIndex(cards, pos)
-    // 2-column grid: up means -2
-    if idx >= 2 {
-        return cards[idx-2]
-    }
-    return pos
-}
-
-func gridDown(cards []cardPos, pos cardPos) cardPos {
-    idx := gridIndex(cards, pos)
-    if idx+2 < len(cards) {
-        return cards[idx+2]
-    }
-    return pos
-}
-
-func gridLeft(cards []cardPos, pos cardPos) cardPos {
-    idx := gridIndex(cards, pos)
-    // Left from even column (right side) to odd (left side)
-    if idx%2 == 1 {
-        return cards[idx-1]
-    }
-    return pos
-}
-
-func gridRight(cards []cardPos, pos cardPos) cardPos {
-    idx := gridIndex(cards, pos)
-    if idx%2 == 0 && idx+1 < len(cards) {
-        return cards[idx+1]
-    }
-    return pos
 }
 
 func (m Model) svcCount() int {
@@ -431,18 +401,4 @@ func (m Model) svcName(i int) string {
         return names[i]
     }
     return ""
-}
-
-func (m Model) availableLogs() []logSelection {
-    avail := []logSelection{logSelTor, logSelBitcoin}
-    if m.cfg.HasLND() {
-        avail = append(avail, logSelLND)
-    }
-    if m.cfg.LITInstalled {
-        avail = append(avail, logSelLIT)
-    }
-    if m.cfg.SyncthingInstalled {
-        avail = append(avail, logSelSyncthing)
-    }
-    return avail
 }

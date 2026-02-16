@@ -13,7 +13,7 @@ set -eo pipefail
 #   curl -sL ripsline.com/virtual-private-node.sh | bash -s -- --testnet4
 # ═══════════════════════════════════════════════════════════
 
-VERSION="0.2.0"
+VERSION="0.2.1"
 BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
@@ -205,13 +205,13 @@ fi
 # ── Auto-launch on ripsline login ───────────────────────────
 
 cat > /home/$ADMIN_USER/.bash_profile << 'BASHEOF'
-# Source .bashrc for environment variables and shell functions
-[ -f ~/.bashrc ] && source ~/.bashrc
-
 # Virtual Private Node — auto-launch
 if [ -n "$SSH_CONNECTION" ] && [ -t 0 ]; then
     sudo /usr/local/bin/rlvpn
 fi
+
+# Source .bashrc after rlvpn (wrappers may have been added)
+[ -f ~/.bashrc ] && source ~/.bashrc
 BASHEOF
 chown $ADMIN_USER:$ADMIN_USER /home/$ADMIN_USER/.bash_profile
 echo "  ✓ Configured auto-launch"

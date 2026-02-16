@@ -96,5 +96,5 @@ var (
 
 const (
     ContentWidth = 76
-    BoxHeight    = 20
+    BoxHeight    = 24
 )

@@ -18,13 +18,6 @@ func downloadBitcoin(version string) error {
     return system.Download(shaURL, "/tmp/SHA256SUMS")
 }
 
-func verifyBitcoin(version string) error {
-    if err := system.Run("sha256sum", "--ignore-missing", "--check", "/tmp/SHA256SUMS"); err != nil {
-        return fmt.Errorf("checksum failed: %w", err)
-    }
-    return nil
-}
-
 func extractAndInstallBitcoin(version string) error {
     filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
     if err := system.Run("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp"); err != nil {

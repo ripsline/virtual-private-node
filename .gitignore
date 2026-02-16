@@ -16,4 +16,4 @@ release/
 
 # Test
 important.json
-*.testtestrun
+testrun.sh

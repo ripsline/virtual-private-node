@@ -20,6 +20,10 @@ func (m Model) View() string {
         return m.viewZeus()
     case svSparrow:
         return m.viewSparrow()
+    case svSyncthingDetail:
+        return m.viewSyncthingDetail()
+    case svLITDetail:
+        return m.viewLITDetail()
     case svQR:
         return m.viewQR()
     case svFullURL:
@@ -33,8 +37,6 @@ func (m Model) View() string {
         content = m.viewDashboard(bw)
     case tabPairing:
         content = m.viewPairing(bw)
-    case tabLogs:
-        content = m.viewLogs(bw)
     case tabAddons:
         content = m.viewAddons(bw)
     case tabSettings:
@@ -60,7 +62,6 @@ func (m Model) viewTabs(tw int) string {
     }{
         {"Dashboard", tabDashboard},
         {"Pairing", tabPairing},
-        {"Logs", tabLogs},
         {"Add-ons", tabAddons},
         {"Settings", tabSettings},
     }
@@ -82,7 +83,7 @@ func (m Model) viewFooter() string {
     if m.cardActive {
         if m.dashCard == cardServices {
             return theme.Footer.Render(
-                "  ↑↓ select • [r]estart [s]top [a]start • backspace back • q quit  ")
+                "  ↑↓ select • [r]estart [s]top [a]start [l]ogs • backspace back • q quit  ")
         }
         if m.dashCard == cardSystem {
             if m.status != nil && m.status.rebootRequired {
@@ -100,15 +101,20 @@ func (m Model) viewFooter() string {
     case tabPairing:
         return theme.Footer.Render(
             "  ←→ select • enter open • tab switch • q quit  ")
-    case tabLogs:
-        return theme.Footer.Render(
-            "  ↑↓ select • enter view • tab switch • q quit  ")
     case tabAddons:
         return theme.Footer.Render(
             "  ←→ select • enter install/view • tab switch • q quit  ")
     case tabSettings:
+        if m.settingsCustom {
+            return theme.Footer.Render(
+                "  type size in GB • enter confirm • backspace cancel  ")
+        }
+        if m.settingsConfirm != "" || m.updateConfirm {
+            return theme.Footer.Render(
+                "  y confirm • any key cancel  ")
+        }
         return theme.Footer.Render(
-            "  ↑↓ select • enter change • tab switch • q quit  ")
+            "  ←→ card • ↑↓ select • enter change • tab switch • q quit  ")
     }
     return ""
 }

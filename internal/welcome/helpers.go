@@ -112,3 +112,19 @@ func runSystemUpdate() {
     fmt.Scanln()
     fmt.Print("\033[2J\033[H")
 }
+
+func runLogViewer(svcName string, cfg *config.AppConfig) {
+    fmt.Print("\033[2J\033[H")
+    fmt.Printf("\n  ═══════════════════════════════════════════\n")
+    fmt.Printf("    %s Logs (last 100 lines)\n", svcName)
+    fmt.Printf("  ═══════════════════════════════════════════\n\n")
+
+    cmd := exec.Command("journalctl", "-u", svcName, "-n", "100", "--no-pager")
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    cmd.Run()
+
+    fmt.Print("\n  Press Enter to return...")
+    fmt.Scanln()
+    fmt.Print("\033[2J\033[H")
+}

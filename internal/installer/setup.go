@@ -29,7 +29,7 @@ func LitVersionStr() string { return litVersion }
 func LndVersionStr() string { return lndVersion }
 
 func NeedsInstall() bool {
-    _, err := os.Stat("/etc/rlvpn/config.json")
+    _, err := os.Stat("/usr/local/bin/bitcoind")
     return err != nil
 }
 
@@ -383,8 +383,11 @@ func RunLNDInstall(cfg *config.AppConfig) error {
     p2pMsg := theme.Header.Render("LND P2P Mode") + "\n\n" +
         theme.Value.Render("  [1] Tor only — Maximum privacy") + "\n" +
         theme.Value.Render("  [2] Hybrid  — Tor + clearnet, better routing") + "\n\n" +
-        theme.Dim.Render("Press 1 or 2")
+        theme.Dim.Render("Press 1 or 2 • backspace to cancel")
     p2pChoice := showChoiceBox(p2pMsg, []string{"1", "2"})
+    if p2pChoice == "" {
+        return nil
+    }
     if p2pChoice == "2" {
         p2pMode = "hybrid"
     }
@@ -398,6 +401,10 @@ func RunLNDInstall(cfg *config.AppConfig) error {
     }
 
     cfg.P2PMode = p2pMode
+
+    // Set LND as installed BEFORE building steps so torrc includes control port
+    cfg.LNDInstalled = true
+    cfg.Components = "bitcoin+lnd"
 
     steps := []installStep{
         {name: "Importing LND signing key", fn: importLNDKey},
@@ -414,10 +421,10 @@ func RunLNDInstall(cfg *config.AppConfig) error {
         {name: "Starting LND", fn: startLND},
     }
     if err := RunInstallTUI(steps, appVersion); err != nil {
+        cfg.LNDInstalled = false
+        cfg.Components = "bitcoin"
         return err
     }
-    cfg.LNDInstalled = true
-    cfg.Components = "bitcoin+lnd"
     return config.Save(cfg)
 }
 
@@ -442,6 +449,8 @@ func RunLITInstall(cfg *config.AppConfig) error {
     }
     litPassword := hexEncode(passBytes)
 
+    cfg.LITInstalled = true
+
     steps := []installStep{
         {name: "Importing LIT signing key", fn: importLITKey},
         {name: "Downloading Lightning Terminal " + litVersion, fn: func() error { return downloadLIT(litVersion) }},
@@ -458,9 +467,9 @@ func RunLITInstall(cfg *config.AppConfig) error {
         {name: "Starting Lightning Terminal", fn: startLITD},
     }
     if err := RunInstallTUI(steps, appVersion); err != nil {
+        cfg.LITInstalled = false
         return err
     }
-    cfg.LITInstalled = true
     cfg.LITPassword = litPassword
     return config.Save(cfg)
 }
@@ -485,6 +494,8 @@ func RunSyncthingInstall(cfg *config.AppConfig) error {
     }
     syncPassword := hexEncode(passBytes)
 
+    cfg.SyncthingInstalled = true
+
     steps := []installStep{
         {name: "Adding Syncthing repository", fn: installSyncthingRepo},
         {name: "Installing Syncthing", fn: installSyncthingPackage},
@@ -497,9 +508,9 @@ func RunSyncthingInstall(cfg *config.AppConfig) error {
         {name: "Setting up channel backup watcher", fn: func() error { return setupChannelBackupWatcher(cfg) }},
     }
     if err := RunInstallTUI(steps, appVersion); err != nil {
+        cfg.SyncthingInstalled = false
         return err
     }
-    cfg.SyncthingInstalled = true
     cfg.SyncthingPassword = syncPassword
     return config.Save(cfg)
 }
@@ -533,14 +544,16 @@ func (m choiceBoxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         m.width = msg.Width
         m.height = msg.Height
     case tea.KeyMsg:
-        for _, c := range m.choices {
-            if msg.String() == c {
-                m.result = c
-                return m, tea.Quit
-            }
-        }
-        if msg.String() == "ctrl+c" {
+        switch msg.String() {
+        case "backspace", "ctrl+c":
             return m, tea.Quit
+        default:
+            for _, c := range m.choices {
+                if msg.String() == c {
+                    m.result = c
+                    return m, tea.Quit
+                }
+            }
         }
     }
     return m, nil
@@ -557,6 +570,104 @@ func showChoiceBox(content string, choices []string) string {
     p := tea.NewProgram(m, tea.WithAltScreen())
     result, _ := p.Run()
     return result.(choiceBoxModel).result
+}
+
+// ── Self-update ──────────────────────────────────────────
+
+func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
+    confirmMsg := theme.Header.Render("Update Virtual Private Node") + "\n\n" +
+        theme.Value.Render("Current: v"+appVersion) + "\n" +
+        theme.Value.Render("Latest:  v"+newVersion) + "\n\n" +
+        theme.Value.Render("This will download and verify the new binary.") + "\n" +
+        theme.Value.Render("The update takes effect on next SSH login.") + "\n\n" +
+        theme.Dim.Render("Enter to proceed • backspace to cancel")
+    if !ShowConfirmBox(confirmMsg) {
+        return nil
+    }
+
+    baseURL := fmt.Sprintf(
+        "https://github.com/ripsline/virtual-private-node/releases/download/v%s", newVersion)
+    pubkeyURL := "https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/release.pub.asc"
+    tarball := fmt.Sprintf("rlvpn-%s-amd64.tar.gz", newVersion)
+
+    steps := []installStep{
+        {name: "Downloading v" + newVersion, fn: func() error {
+            return system.Download(baseURL+"/"+tarball, "/tmp/"+tarball)
+        }},
+        {name: "Downloading checksums", fn: func() error {
+            if err := system.Download(baseURL+"/SHA256SUMS", "/tmp/rlvpn-SHA256SUMS"); err != nil {
+                return err
+            }
+            return system.Download(baseURL+"/SHA256SUMS.asc", "/tmp/rlvpn-SHA256SUMS.asc")
+        }},
+        {name: "Importing release key", fn: func() error {
+            keyFile := "/tmp/rlvpn-release.pub.asc"
+            if err := system.Download(pubkeyURL, keyFile); err != nil {
+                return err
+            }
+            defer os.Remove(keyFile)
+            return system.Run("gpg", "--batch", "--import", keyFile)
+        }},
+        {name: "Verifying signature", fn: func() error {
+            cmd := exec.Command("gpg", "--batch", "--verify",
+                "/tmp/rlvpn-SHA256SUMS.asc", "/tmp/rlvpn-SHA256SUMS")
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                return fmt.Errorf("signature verification failed: %s", output)
+            }
+            return nil
+        }},
+        {name: "Verifying checksum", fn: func() error {
+            cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "rlvpn-SHA256SUMS")
+            cmd.Dir = "/tmp"
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                return fmt.Errorf("checksum failed: %s", output)
+            }
+            return nil
+        }},
+        {name: "Installing new binary", fn: func() error {
+            if err := system.Run("tar", "-xzf", "/tmp/"+tarball, "-C", "/tmp"); err != nil {
+                return err
+            }
+            if err := system.Run("install", "-m", "755", "/tmp/rlvpn", "/usr/local/bin/rlvpn"); err != nil {
+                return err
+            }
+            // Cleanup
+            os.Remove("/tmp/" + tarball)
+            os.Remove("/tmp/rlvpn-SHA256SUMS")
+            os.Remove("/tmp/rlvpn-SHA256SUMS.asc")
+            os.Remove("/tmp/rlvpn")
+            return nil
+        }},
+    }
+
+    return RunInstallTUI(steps, appVersion)
+}
+
+func CheckLatestVersion() string {
+    output, err := system.RunContext(10e9, "curl", "-sL",
+        "https://api.github.com/repos/ripsline/virtual-private-node/releases/latest")
+    if err != nil {
+        return ""
+    }
+    // Simple parse — look for "tag_name": "v0.2.1"
+    for _, line := range strings.Split(output, "\n") {
+        line = strings.TrimSpace(line)
+        if strings.HasPrefix(line, `"tag_name"`) {
+            parts := strings.Split(line, `"`)
+            for _, p := range parts {
+                if len(p) > 1 && p[0] == 'v' {
+                    return p[1:] // strip the v
+                }
+            }
+        }
+    }
+    return ""
+}
+
+func GetVersion() string {
+    return appVersion
 }
 
 // ── Helpers ──────────────────────────────────────────────

@@ -28,16 +28,6 @@ func downloadLND(version string) error {
     return nil
 }
 
-func verifyLND(version string) error {
-    if _, err := os.Stat("/tmp/manifest.txt"); err != nil {
-        return fmt.Errorf("LND manifest not found")
-    }
-    if err := system.Run("sha256sum", "--ignore-missing", "--check", "/tmp/manifest.txt"); err != nil {
-        return fmt.Errorf("checksum failed: %w", err)
-    }
-    return nil
-}
-
 func extractAndInstallLND(version string) error {
     filename := fmt.Sprintf("lnd-linux-amd64-v%s.tar.gz", version)
     if err := system.Run("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp"); err != nil {
