@@ -21,7 +21,6 @@ OUTDIR="release"
 if [ -n "$1" ]; then
     VERSION="$1"
 else
-    # Read from virtual-private-node.sh
     VERSION=$(grep '^VERSION=' virtual-private-node.sh | head -1 | cut -d'"' -f2)
     if [ -z "$VERSION" ]; then
         echo "ERROR: Could not read VERSION from virtual-private-node.sh"

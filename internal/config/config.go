@@ -14,6 +14,7 @@ type AppConfig struct {
     PruneSize          int    `json:"prune_size"`
     P2PMode            string `json:"p2p_mode"`
     AutoUnlock         bool   `json:"auto_unlock"`
+    LNDInstalled       bool   `json:"lnd_installed"`
     LITInstalled       bool   `json:"lit_installed"`
     LITPassword        string `json:"lit_password,omitempty"`
     SyncthingInstalled bool   `json:"syncthing_installed"`
@@ -22,8 +23,8 @@ type AppConfig struct {
 
 func Default() *AppConfig {
     return &AppConfig{
-        Network:    "testnet4",
-        Components: "bitcoin+lnd",
+        Network:    "mainnet",
+        Components: "bitcoin",
         PruneSize:  25,
         P2PMode:    "tor",
     }
@@ -53,7 +54,7 @@ func Save(cfg *AppConfig) error {
 }
 
 func (c *AppConfig) HasLND() bool {
-    return c.Components == "bitcoin+lnd"
+    return c.LNDInstalled
 }
 
 func (c *AppConfig) IsMainnet() bool {
@@ -68,4 +69,8 @@ func (c *AppConfig) WalletExists() bool {
     path := "/var/lib/lnd/data/chain/bitcoin/" + network + "/wallet.db"
     _, err := os.Stat(path)
     return err == nil
+}
+
+func (c *AppConfig) NetworkConfig() *NetworkConfig {
+    return NetworkConfigFromName(c.Network)
 }
