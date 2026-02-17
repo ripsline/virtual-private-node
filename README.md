@@ -17,6 +17,8 @@ After installation, manage your node with `bitcoin-cli` and
 - **Lightning Terminal v0.16.0-alpha** — browser UI for channel management (from Add-ons)
 - **Syncthing** — automatic LND channel backup over Tor (from Add-ons)
 
+![Screenshot](docs/images/dashboard.png)
+
 ### Requirements
 
 - Fresh Debian 13+
