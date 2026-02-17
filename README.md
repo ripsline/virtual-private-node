@@ -11,21 +11,21 @@ After installation, manage your node with `bitcoin-cli` and
 - **Tor** — all connections routed through Tor
 - **Bitcoin Core 29.3** — pruned (25 GB default), Tor-routed
 
-### Additional software (from Add-ons tab)
+### Additional software (from Dashboard and Add-ons)
 
-- **LND 0.20.0-beta** — Lightning with Tor hidden services
-- **Lightning Terminal v0.16.0-alpha** — browser UI for channel management
-- **Syncthing** — file sync with automatic LND channel backup
+- **LND 0.20.0-beta** — Lightning with Tor hidden services (from Dashboard)
+- **Lightning Terminal v0.16.0-alpha** — browser UI for channel management (from Add-ons)
+- **Syncthing** — automatic LND channel backup over Tor (from Add-ons)
 
 ### Requirements
 
 - Fresh Debian 13+
-- 2 vCPU, 4 GB RAM, 90+ GB SSD
+- 2 (v)CPU, 4+ GB RAM, 90+ GB SSD
 - [Mynymbox VPS with exact specs](https://client.mynymbox.io/store/custom/custom-vps-2-4-90-nl?aff=8)
 
 ### Quick Start
 
-SSH into your VPS as root and run:
+SSH into Debian 13+ as root and run:
 
 ```bash
 apt update && apt install -y git curl
@@ -38,7 +38,7 @@ This creates a`ripsline` user, downloads the`rlvpn` binary, and
 disables root SSH. Follow the on-screen instructions to SSH in as
 `ripsline` — Bitcoin Core begins installing and syncing automatically.
 
-For testnet4 (developers only):
+For testnet4:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash -s -- --testnet4
@@ -46,13 +46,12 @@ curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/vi
 
 ### Dashboard
 
-Every SSH login as`ripsline` opens a dashboard with five tabs:
+Every SSH login as`ripsline` opens a dashboard with four tabs:
 
-- **Dashboard** — Services, System, Bitcoin, and installed add-on cards
+- **Dashboard** — Services (with logs), System, Bitcoin, and Lightning cards
 - **Pairing** — Zeus and Sparrow wallet connection with QR codes
-- **Logs** — journal logs per service
-- **Add-ons** — install LND, Lightning Terminal, and Syncthing
-- **Settings** — prune size (25 GB minimum)
+- **Add-ons** — install Lightning Terminal and Syncthing
+- **Settings** — prune size and self-update
 
 Press`q` to drop to a shell:
 
@@ -60,7 +59,7 @@ Press`q` to drop to a shell:
 bitcoin-cli getblockchaininfo
 bitcoin-cli getpeerinfo
 
-# After installing LND from Add-ons:
+# After installing LND from Dashboard:
 lncli getinfo
 lncli walletbalance
 
@@ -113,13 +112,13 @@ sudo cat /var/log/rlvpn-verification.log
 ```
 
 For manual binary verification before installation, see
-[Release Verification](docs/release-verification.md).
+[Release Verification](docs/verifying.md).
 
 ### Connecting Wallets
 
 #### Zeus (Lightning — LND REST over Tor)
 
-1. Install LND from Add-ons tab, create wallet
+1. Install LND from Dashboard, create wallet
 2. Open Pairing tab → Zeus card
 3. In Zeus: Advanced Set-Up → LND (REST)
 4. Enter server address, REST port (8080), and macaroon from Pairing tab
@@ -134,6 +133,16 @@ For manual binary verification before installation, see
 
 Note: cookie password changes when Bitcoin Core restarts.
 
+### Syncthing Channel Backups
+
+Syncthing automatically syncs your LND`channel.backup` file to
+your local device over Tor. No cloud services. No trust. If your
+VPS dies, recover your channels with your seed phrase and the
+backup file.
+
+For the full setup guide, see
+[Syncthing Setup Guide](docs/syncthing.md).
+
 ### Security
 
 - All connections through Tor (SOCKS5 port 9050)
@@ -146,7 +155,7 @@ Note: cookie password changes when Bitcoin Core restarts.
 - Cookie authentication for Bitcoin Core RPC
 - GPG signature verification for all software
 - Unattended security upgrades with auto-reboot
-- LND channel backup auto-synced via Syncthing
+- LND channel backup auto-synced via Syncthing over Tor
 
 ### Architecture
 
@@ -157,9 +166,9 @@ User SSH → ripsline@VPS → rlvpn dashboard
 Services (systemd, run as bitcoin user):
   tor.service → SOCKS proxy, hidden services
   bitcoind.service   → pruned node, Tor-routed
-  lnd.service → Lightning (add-on)
+  lnd.service → Lightning (from Dashboard)
   litd.service       → Lightning Terminal (add-on)
-  syncthing.service  → file sync (add-on)
+  syncthing.service  → channel backup sync (add-on)
 ```
 
 ### Directory Layout
@@ -175,13 +184,11 @@ Services (systemd, run as bitcoin user):
 | /var/lib/lnd/ | LND data and wallet |
 | /var/lib/lit/ | Lightning Terminal data |
 | /var/lib/syncthing/lnd-backup/ | Auto-synced channel.backup |
+| /var/log/rlvpn-verification.log | Software verification audit log |
 
 ## License
 
 Copyright (C) 2026 ripsline
 
 This project is free software licensed under the
-[GNU Affero General Public License v3.0](LICENSE). You are free to
-use, modify, and distribute it under the same terms. If you run a
-modified version as a network service, you must make the source
-available to its users.
+[GNU Affero General Public License v3.0](LICENSE).

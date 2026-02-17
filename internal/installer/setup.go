@@ -587,7 +587,7 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 
     baseURL := fmt.Sprintf(
         "https://github.com/ripsline/virtual-private-node/releases/download/v%s", newVersion)
-    pubkeyURL := "https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/release.pub.asc"
+    pubkeyURL := "https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/ripsline-signing-key.asc"
     tarball := fmt.Sprintf("rlvpn-%s-amd64.tar.gz", newVersion)
 
     steps := []installStep{

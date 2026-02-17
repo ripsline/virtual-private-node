@@ -5,7 +5,7 @@ Verify the bootstrap binary before installation.
 ### Import the release signing key
 
 ```bash
-curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/release.pub.asc | gpg --import
+curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/ripsline-signing-key.asc | gpg --import
 ```
 
 ### Download the release files
