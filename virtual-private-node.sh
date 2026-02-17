@@ -18,7 +18,7 @@ BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
 BASE_URL="https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}"
-PUBKEY_URL="https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/release.pub.asc"
+PUBKEY_URL="https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/ripsline-signing-key.asc"
 
 # ── Parse flags ──────────────────────────────────────────────
 
