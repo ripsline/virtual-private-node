@@ -689,6 +689,12 @@ func readFileOrDefault(path, def string) string {
 }
 
 func setupShellEnvironment(cfg *config.AppConfig) error {
+    bashrc := "/home/ripsline/.bashrc"
+    data, err := os.ReadFile(bashrc)
+    if err == nil && strings.Contains(string(data), "bitcoin-cli()") {
+        return nil // already present
+    }
+
     net := cfg.NetworkConfig()
     btcNetFlag := ""
     if net.Name == "testnet4" {
@@ -706,7 +712,7 @@ bitcoin-cli() {
 export -f bitcoin-cli
 `, btcNetFlag)
 
-    f, err := os.OpenFile("/home/ripsline/.bashrc",
+    f, err := os.OpenFile(bashrc,
         os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
     if err != nil {
         return err
@@ -718,6 +724,12 @@ export -f bitcoin-cli
 
 // appendLNCLIToShell adds the lncli wrapper after LND is installed.
 func AppendLNCLIToShell(cfg *config.AppConfig) error {
+    bashrc := "/home/ripsline/.bashrc"
+    data, err := os.ReadFile(bashrc)
+    if err == nil && strings.Contains(string(data), "lncli()") {
+        return nil // already present
+    }
+
     net := cfg.NetworkConfig()
     lndNetFlag := ""
     if net.Name != "mainnet" {
@@ -734,7 +746,7 @@ lncli() {
 export -f lncli
 `, lndNetFlag, net.LNCLINetwork)
 
-    f, err := os.OpenFile("/home/ripsline/.bashrc",
+    f, err := os.OpenFile(bashrc,
         os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
     if err != nil {
         return err
