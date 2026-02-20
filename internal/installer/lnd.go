@@ -36,7 +36,7 @@ func extractAndInstallLND(version string) error {
     extractDir := fmt.Sprintf("/tmp/lnd-linux-amd64-v%s", version)
     for _, bin := range []string{"lnd", "lncli"} {
         src := fmt.Sprintf("%s/%s", extractDir, bin)
-        if err := system.Run("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
+        if err := system.SudoRun("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
             return err
         }
     }
@@ -56,13 +56,15 @@ func createLNDDirs(username string) error {
         {"/var/lib/lnd", username + ":" + username, 0750},
     }
     for _, d := range dirs {
-        if err := os.MkdirAll(d.path, d.mode); err != nil {
+        if err := system.SudoRun("mkdir", "-p", d.path); err != nil {
             return err
         }
-        if err := system.Run("chown", d.owner, d.path); err != nil {
+        if err := system.SudoRun("chown", d.owner, d.path); err != nil {
             return err
         }
-        os.Chmod(d.path, d.mode)
+        if err := system.SudoRun("chmod", fmt.Sprintf("%o", d.mode), d.path); err != nil {
+            return err
+        }
     }
     return nil
 }
@@ -96,7 +98,6 @@ debuglevel=info
 %s
 
 [Bitcoin]
-bitcoin.active=true
 %s
 bitcoin.node=bitcoind
 
@@ -119,10 +120,10 @@ tor.streamisolation=true
         net.LNDBitcoinFlag, cookiePath,
         net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
 
-    if err := os.WriteFile("/etc/lnd/lnd.conf", []byte(content), 0640); err != nil {
+    if err := system.SudoWriteFile("/etc/lnd/lnd.conf", []byte(content), 0640); err != nil {
         return err
     }
-    return system.Run("chown", "root:"+systemUser, "/etc/lnd/lnd.conf")
+    return system.SudoRun("chown", "root:"+systemUser, "/etc/lnd/lnd.conf")
 }
 
 func writeLNDServiceInitial(username string) error {
@@ -146,25 +147,35 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 `, username, username)
-    return os.WriteFile("/etc/systemd/system/lnd.service", []byte(content), 0644)
+    return system.SudoWriteFile("/etc/systemd/system/lnd.service", []byte(content), 0644)
 }
 
 func startLND() error {
-    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+    if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "enable", "lnd"); err != nil {
+    if err := system.SudoRun("systemctl", "enable", "lnd"); err != nil {
         return err
     }
-    return system.Run("systemctl", "start", "lnd")
+    return system.SudoRun("systemctl", "start", "lnd")
 }
 
 func setupAutoUnlock(password string) error {
-    passwordFile := "/var/lib/lnd/wallet_password"
-    if err := os.WriteFile(passwordFile, []byte(password), 0400); err != nil {
+    // Write password to a temp file, then sudo move it
+    tmpPw := "/tmp/rlvpn-wallet-pw.tmp"
+    if err := os.WriteFile(tmpPw, []byte(password), 0600); err != nil {
         return err
     }
-    system.RunSilent("chown", systemUser+":"+systemUser, passwordFile)
+    defer os.Remove(tmpPw)
+
+    passwordFile := "/var/lib/lnd/wallet_password"
+    if err := system.SudoRun("cp", tmpPw, passwordFile); err != nil {
+        return err
+    }
+    if err := system.SudoRun("chmod", "0400", passwordFile); err != nil {
+        return err
+    }
+    system.SudoRunSilent("chown", systemUser+":"+systemUser, passwordFile)
 
     content := fmt.Sprintf(`[Unit]
 Description=LND Lightning Network Daemon
@@ -187,13 +198,13 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 `, systemUser, systemUser)
 
-    if err := os.WriteFile("/etc/systemd/system/lnd.service", []byte(content), 0644); err != nil {
+    if err := system.SudoWriteFile("/etc/systemd/system/lnd.service", []byte(content), 0644); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+    if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
         return err
     }
-    return system.Run("systemctl", "restart", "lnd")
+    return system.SudoRun("systemctl", "restart", "lnd")
 }
 
 func waitForLND() error {

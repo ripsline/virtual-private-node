@@ -75,6 +75,9 @@ func vlog(format string, args ...interface{}) {
     f, err := os.OpenFile(verifyLogPath,
         os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
     if err != nil {
+        // Can't open directly, try via sudo append
+        system.SudoRun("bash", "-c",
+            fmt.Sprintf("echo -n %q >> %s", entry, verifyLogPath))
         return
     }
     defer f.Close()
@@ -87,7 +90,7 @@ func ensureGPG() error {
     if _, err := exec.LookPath("gpg"); err == nil {
         return nil
     }
-    return system.Run("apt-get", "install", "-y", "-qq", "gnupg")
+    return system.SudoRun("apt-get", "install", "-y", "-qq", "gnupg")
 }
 
 // ── Key import ───────────────────────────────────────────
@@ -187,19 +190,29 @@ func verifyBitcoinCoreSigs(minValid int) error {
     output, _ := cmd.CombinedOutput()
     outputStr := string(output)
 
-    validCount := strings.Count(outputStr, "GOODSIG")
+    validCount := ParseGoodSigCount(outputStr)
+    badCount := ParseBadSigCount(outputStr)
 
-    // Log each GOODSIG line
     for _, line := range strings.Split(outputStr, "\n") {
         if strings.Contains(line, "GOODSIG") {
             vlog("GOODSIG: %s", strings.TrimSpace(line))
         }
+        if strings.Contains(line, "BADSIG") {
+            vlog("BADSIG: %s", strings.TrimSpace(line))
+        }
     }
 
-    vlog("Bitcoin Core valid signatures: %d/%d required", validCount, minValid)
+    vlog("Bitcoin Core valid signatures: %d/%d required (bad: %d)",
+        validCount, minValid, badCount)
+
+    if badCount > 0 {
+        vlog("FAIL: %d bad signatures detected", badCount)
+        return fmt.Errorf("bad signatures detected: %d", badCount)
+    }
 
     if validCount < minValid {
-        vlog("FAIL: insufficient valid signatures: got %d, need %d", validCount, minValid)
+        vlog("FAIL: insufficient valid signatures: got %d, need %d",
+            validCount, minValid)
         return fmt.Errorf(
             "insufficient valid signatures: got %d, need %d",
             validCount, minValid)
@@ -354,3 +367,19 @@ func downloadBitcoinSigFile(version string) error {
         "https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS.asc", version)
     return system.Download(url, "/tmp/SHA256SUMS.asc")
 }
+
+// ParseGoodSigCount counts GOODSIG lines in GPG status output.
+func ParseGoodSigCount(output string) int {
+    return strings.Count(output, "GOODSIG")
+}
+
+// ParseBadSigCount counts BADSIG lines in GPG status output.
+func ParseBadSigCount(output string) int {
+    return strings.Count(output, "BADSIG")
+}
+
+// HasGoodSig checks if GPG output contains at least one GOODSIG.
+func HasGoodSig(output string) bool {
+    return strings.Contains(output, "GOODSIG")
+}
+

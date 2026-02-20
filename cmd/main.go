@@ -23,8 +23,10 @@ func main() {
         welcome.Show(cfg, version)
         return
     }
+
+    // Only the initial install requires root
     if os.Geteuid() != 0 {
-        fmt.Println("ERROR: Run with sudo")
+        fmt.Fprintln(os.Stderr, "ERROR: Initial install requires root. Run: sudo rlvpn")
         os.Exit(1)
     }
     if err := installer.Run(); err != nil {

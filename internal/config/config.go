@@ -5,8 +5,11 @@ import (
     "os"
 )
 
-const configDir = "/etc/rlvpn"
-const configPath = "/etc/rlvpn/config.json"
+// Defaults — used by production code
+const (
+    DefaultDir  = "/etc/rlvpn"
+    DefaultPath = "/etc/rlvpn/config.json"
+)
 
 type AppConfig struct {
     Network            string `json:"network"`
@@ -21,6 +24,16 @@ type AppConfig struct {
     SyncthingPassword  string `json:"syncthing_password,omitempty"`
 }
 
+// Store handles reading/writing config to disk.
+type Store struct {
+    Dir  string
+    Path string
+}
+
+func DefaultStore() *Store {
+    return &Store{Dir: DefaultDir, Path: DefaultPath}
+}
+
 func Default() *AppConfig {
     return &AppConfig{
         Network:    "mainnet",
@@ -30,8 +43,8 @@ func Default() *AppConfig {
     }
 }
 
-func Load() (*AppConfig, error) {
-    data, err := os.ReadFile(configPath)
+func (s *Store) Load() (*AppConfig, error) {
+    data, err := os.ReadFile(s.Path)
     if err != nil {
         return nil, err
     }
@@ -42,15 +55,25 @@ func Load() (*AppConfig, error) {
     return &cfg, nil
 }
 
-func Save(cfg *AppConfig) error {
-    if err := os.MkdirAll(configDir, 0755); err != nil {
+func (s *Store) Save(cfg *AppConfig) error {
+    if err := os.MkdirAll(s.Dir, 0750); err != nil {
         return err
     }
     data, err := json.MarshalIndent(cfg, "", "  ")
     if err != nil {
         return err
     }
-    return os.WriteFile(configPath, data, 0600)
+    return os.WriteFile(s.Path, data, 0600)
+}
+
+// Convenience functions that use the default store.
+// These keep existing call sites working without changes.
+func Load() (*AppConfig, error) {
+    return DefaultStore().Load()
+}
+
+func Save(cfg *AppConfig) error {
+    return DefaultStore().Save(cfg)
 }
 
 func (c *AppConfig) HasLND() bool {

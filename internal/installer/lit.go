@@ -32,7 +32,7 @@ func extractAndInstallLIT(version string) error {
         return err
     }
     extractDir := fmt.Sprintf("/tmp/lightning-terminal-linux-amd64-v%s", version)
-    if err := system.Run("install", "-m", "0755", "-o", "root", "-g", "root",
+    if err := system.SudoRun("install", "-m", "0755", "-o", "root", "-g", "root",
         extractDir+"/litd", "/usr/local/bin/"); err != nil {
         return err
     }
@@ -52,23 +52,25 @@ func createLITDirs() error {
         {"/var/lib/lit", systemUser + ":" + systemUser, 0750},
     }
     for _, d := range dirs {
-        if err := os.MkdirAll(d.path, d.mode); err != nil {
+        if err := system.SudoRun("mkdir", "-p", d.path); err != nil {
             return err
         }
-        if err := system.Run("chown", d.owner, d.path); err != nil {
+        if err := system.SudoRun("chown", d.owner, d.path); err != nil {
             return err
         }
-        os.Chmod(d.path, d.mode)
+        if err := system.SudoRun("chmod", fmt.Sprintf("%o", d.mode), d.path); err != nil {
+            return err
+        }
     }
     return nil
 }
 
 func enableRPCMiddleware() error {
-    data, err := os.ReadFile("/etc/lnd/lnd.conf")
+    output, err := system.SudoRunOutput("cat", "/etc/lnd/lnd.conf")
     if err != nil {
         return err
     }
-    content := string(data)
+    content := output
     if strings.Contains(content, "rpcmiddleware.enable=true") {
         return nil
     }
@@ -82,10 +84,10 @@ func enableRPCMiddleware() error {
     } else {
         content += addition
     }
-    if err := os.WriteFile("/etc/lnd/lnd.conf", []byte(content), 0640); err != nil {
+    if err := system.SudoWriteFile("/etc/lnd/lnd.conf", []byte(content), 0640); err != nil {
         return err
     }
-    return system.Run("chown", "root:"+systemUser, "/etc/lnd/lnd.conf")
+    return system.SudoRun("chown", "root:"+systemUser, "/etc/lnd/lnd.conf")
 }
 
 func writeLITConfig(cfg *config.AppConfig, uiPassword string) error {
@@ -115,10 +117,10 @@ autopilot.disable=true
 httpslisten=127.0.0.1:8443
 `, uiPassword, cfg.Network, macaroonPath)
 
-    if err := os.WriteFile("/etc/lit/lit.conf", []byte(content), 0640); err != nil {
+    if err := system.SudoWriteFile("/etc/lit/lit.conf", []byte(content), 0640); err != nil {
         return err
     }
-    return system.Run("chown", "root:"+systemUser, "/etc/lit/lit.conf")
+    return system.SudoRun("chown", "root:"+systemUser, "/etc/lit/lit.conf")
 }
 
 func writeLITDService(username string) error {
@@ -142,15 +144,15 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 `, username, username)
-    return os.WriteFile("/etc/systemd/system/litd.service", []byte(content), 0644)
+    return system.SudoWriteFile("/etc/systemd/system/litd.service", []byte(content), 0644)
 }
 
 func startLITD() error {
-    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+    if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "enable", "litd"); err != nil {
+    if err := system.SudoRun("systemctl", "enable", "litd"); err != nil {
         return err
     }
-    return system.Run("systemctl", "start", "litd")
+    return system.SudoRun("systemctl", "start", "litd")
 }

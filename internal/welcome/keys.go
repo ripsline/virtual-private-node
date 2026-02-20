@@ -184,7 +184,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
                 action := m.svcConfirm
                 m.svcConfirm = ""
                 return m, func() tea.Msg {
-                    exec.Command("systemctl", action, svc).Run()
+                    exec.Command("sudo", "systemctl", action, svc).Run()
                     return svcActionDoneMsg{}
                 }
             default:

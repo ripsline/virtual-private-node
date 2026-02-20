@@ -17,8 +17,8 @@ type BlockchainInfo struct {
 }
 
 func GetBlockchainInfo(datadir, conf string) *BlockchainInfo {
-    output, err := system.RunContext(5*time.Second,
-        "sudo", "-u", "bitcoin", "bitcoin-cli",
+    output, err := system.SudoRunContext(5*time.Second,
+        "-u", "bitcoin", "bitcoin-cli",
         "-datadir="+datadir, "-conf="+conf,
         "getblockchaininfo")
     if err != nil {

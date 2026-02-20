@@ -15,7 +15,11 @@ import (
 func readOnion(path string) string {
     data, err := os.ReadFile(path)
     if err != nil {
-        return ""
+        output, err := system.SudoRunOutput("cat", path)
+        if err != nil {
+            return ""
+        }
+        return strings.TrimSpace(output)
     }
     return strings.TrimSpace(string(data))
 }
@@ -25,10 +29,16 @@ func readMacaroonHex(cfg *config.AppConfig) string {
     if cfg.IsMainnet() {
         network = "mainnet"
     }
-    data, err := os.ReadFile(fmt.Sprintf(
-        "/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon", network))
+    path := fmt.Sprintf(
+        "/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon", network)
+    data, err := os.ReadFile(path)
     if err != nil {
-        return ""
+        output, err := system.SudoRunContext(3*time.Second,
+            "xxd", "-p", "-c", "9999", path)
+        if err != nil {
+            return ""
+        }
+        return strings.TrimSpace(output)
     }
     return hex.EncodeToString(data)
 }
@@ -59,7 +69,11 @@ func readCookieValue(cfg *config.AppConfig) string {
     }
     data, err := os.ReadFile(p)
     if err != nil {
-        return ""
+        output, err := system.SudoRunOutput("cat", p)
+        if err != nil {
+            return ""
+        }
+        data = []byte(output)
     }
     parts := strings.SplitN(strings.TrimSpace(string(data)), ":", 2)
     if len(parts) != 2 {
@@ -84,16 +98,17 @@ func runSystemUpdate() {
     fmt.Print("\033[2J\033[H")
     fmt.Println("\n  ═══════════════════════════════════════════")
     fmt.Println("    System Update")
-    fmt.Println("  ═══════════════════════════════════════════\n")
+    fmt.Println("  ═══════════════════════════════════════════")
+    fmt.Println()
     fmt.Println("  Running apt update && apt upgrade...")
     fmt.Println()
 
-    updateCmd := exec.Command("apt-get", "update")
+    updateCmd := exec.Command("sudo", "apt-get", "update")
     updateCmd.Stdout = os.Stdout
     updateCmd.Stderr = os.Stderr
     updateCmd.Run()
 
-    cmd := exec.Command("apt-get", "upgrade", "-y")
+    cmd := exec.Command("sudo", "apt-get", "upgrade", "-y")
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
     cmd.Run()
@@ -105,7 +120,7 @@ func runSystemUpdate() {
         var ans string
         fmt.Scanln(&ans)
         if strings.ToLower(ans) == "y" {
-            system.Run("reboot")
+            system.SudoRun("reboot")
         }
     }
     fmt.Print("\n  Press Enter to return...")
@@ -119,7 +134,7 @@ func runLogViewer(svcName string, cfg *config.AppConfig) {
     fmt.Printf("    %s Logs (last 100 lines)\n", svcName)
     fmt.Printf("  ═══════════════════════════════════════════\n\n")
 
-    cmd := exec.Command("journalctl", "-u", svcName, "-n", "100", "--no-pager")
+    cmd := exec.Command("sudo", "journalctl", "-u", svcName, "-n", "100", "--no-pager")
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
     cmd.Run()

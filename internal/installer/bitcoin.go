@@ -30,7 +30,7 @@ func extractAndInstallBitcoin(version string) error {
     }
     for _, entry := range entries {
         src := fmt.Sprintf("%s/%s", extractDir, entry.Name())
-        if err := system.Run("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
+        if err := system.SudoRun("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
             return err
         }
     }
@@ -41,13 +41,14 @@ func extractAndInstallBitcoin(version string) error {
     return nil
 }
 
-func writeBitcoinConfig(cfg *config.AppConfig) error {
+// BuildBitcoinConfig generates bitcoin.conf content from config state.
+// Pure logic — no side effects.
+func BuildBitcoinConfig(cfg *config.AppConfig) string {
     net := cfg.NetworkConfig()
     pruneMB := cfg.PruneSize * 1000
 
-    var content string
     if net.Name == "testnet4" {
-        content = fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
+        return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
 %s
 prune=%d
@@ -66,8 +67,9 @@ zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
 `, net.BitcoinFlag, pruneMB,
             net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
-    } else {
-        content = fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
+    }
+
+    return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
 prune=%d
 dbcache=512
@@ -83,13 +85,15 @@ rpcallowip=127.0.0.1
 zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
 `, pruneMB,
-            net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
-    }
+        net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
+}
 
-    if err := os.WriteFile("/etc/bitcoin/bitcoin.conf", []byte(content), 0640); err != nil {
+func writeBitcoinConfig(cfg *config.AppConfig) error {
+    content := BuildBitcoinConfig(cfg)
+    if err := system.SudoWriteFile("/etc/bitcoin/bitcoin.conf", []byte(content), 0640); err != nil {
         return err
     }
-    return system.Run("chown", "root:"+systemUser, "/etc/bitcoin/bitcoin.conf")
+    return system.SudoRun("chown", "root:"+systemUser, "/etc/bitcoin/bitcoin.conf")
 }
 
 func writeBitcoindService(username string) error {
@@ -113,15 +117,15 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 `, username, username)
-    return os.WriteFile("/etc/systemd/system/bitcoind.service", []byte(content), 0644)
+    return system.SudoWriteFile("/etc/systemd/system/bitcoind.service", []byte(content), 0644)
 }
 
 func startBitcoind() error {
-    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+    if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "enable", "bitcoind"); err != nil {
+    if err := system.SudoRun("systemctl", "enable", "bitcoind"); err != nil {
         return err
     }
-    return system.Run("systemctl", "start", "bitcoind")
+    return system.SudoRun("systemctl", "start", "bitcoind")
 }

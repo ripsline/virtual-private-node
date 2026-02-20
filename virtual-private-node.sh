@@ -130,6 +130,9 @@ CFGEOF
     echo "  ✓ Pre-seeded config (${NETWORK})"
 fi
 
+chown $ADMIN_USER:$ADMIN_USER /etc/rlvpn
+chown $ADMIN_USER:$ADMIN_USER /etc/rlvpn/config.json
+
 # ── Download rlvpn tarball ──────────────────────────────────
 
 ARCH=$(uname -m)
@@ -207,7 +210,7 @@ fi
 cat > /home/$ADMIN_USER/.bash_profile << 'BASHEOF'
 # Virtual Private Node — auto-launch
 if [ -n "$SSH_CONNECTION" ] && [ -t 0 ]; then
-    sudo /usr/local/bin/rlvpn
+    /usr/local/bin/rlvpn
 fi
 
 # Source .bashrc after rlvpn (wrappers may have been added)

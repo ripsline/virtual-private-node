@@ -56,7 +56,7 @@ func Memory() MemInfo {
 }
 
 func DirSize(path string) string {
-    out, err := exec.Command("du", "-sh", path).CombinedOutput()
+    out, err := exec.Command("sudo", "du", "-sh", path).CombinedOutput()
     if err != nil {
         return "N/A"
     }
@@ -72,7 +72,7 @@ func IsServiceActive(name string) bool {
 }
 
 func ServiceAction(name, action string) error {
-    return Run("systemctl", action, name)
+    return SudoRun("systemctl", action, name)
 }
 
 func RebootRequired() bool {

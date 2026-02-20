@@ -313,12 +313,12 @@ func RunWalletCreation(cfg *config.AppConfig) error {
     fmt.Print("\033[2J\033[H")
     fmt.Println("\n  ═══════════════════════════════════════════")
     fmt.Println("    LND Wallet Creation")
-    fmt.Println("  ═══════════════════════════════════════════\n")
+    fmt.Println("  ═══════════════════════════════════════════")
     fmt.Println("  Waiting for LND...")
     if err := waitForLND(); err != nil {
         return err
     }
-    fmt.Println("  ✓ LND is ready\n")
+    fmt.Println("  ✓ LND is ready")
 
     cmd := exec.Command("sudo", "-u", systemUser, "lncli",
         "--lnddir=/var/lib/lnd", "--network="+net.LNCLINetwork, "create")
@@ -347,7 +347,7 @@ func RunWalletCreation(cfg *config.AppConfig) error {
     fmt.Print("\033[2J\033[H")
     fmt.Println("\n  ═══════════════════════════════════════════")
     fmt.Println("    Auto-Unlock Password")
-    fmt.Println("  ═══════════════════════════════════════════\n")
+    fmt.Println("  ═══════════════════════════════════════════")
     fmt.Print("  Re-enter your wallet password: ")
     pw := readPassword()
     fmt.Println()
@@ -606,7 +606,7 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
                 return err
             }
             defer os.Remove(keyFile)
-            return system.Run("gpg", "--batch", "--import", keyFile)
+            return system.SudoRun("gpg", "--batch", "--import", keyFile)
         }},
         {name: "Verifying signature", fn: func() error {
             cmd := exec.Command("gpg", "--batch", "--verify",
@@ -630,7 +630,7 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
             if err := system.Run("tar", "-xzf", "/tmp/"+tarball, "-C", "/tmp"); err != nil {
                 return err
             }
-            if err := system.Run("install", "-m", "755", "/tmp/rlvpn", "/usr/local/bin/rlvpn"); err != nil {
+            if err := system.SudoRun("install", "-m", "755", "/tmp/rlvpn", "/usr/local/bin/rlvpn"); err != nil {
                 return err
             }
             // Cleanup

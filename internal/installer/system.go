@@ -25,7 +25,7 @@ func createSystemUser(username string) error {
     if _, err := user.Lookup(username); err == nil {
         return nil
     }
-    return system.Run("adduser",
+    return system.SudoRun("adduser",
         "--system", "--group",
         "--home", "/var/lib/bitcoin",
         "--shell", "/usr/sbin/nologin",
@@ -42,13 +42,13 @@ func createBitcoinDirs(username string) error {
         {"/var/lib/bitcoin", username + ":" + username, 0750},
     }
     for _, d := range dirs {
-        if err := os.MkdirAll(d.path, d.mode); err != nil {
+        if err := system.SudoRun("mkdir", "-p", d.path); err != nil {
             return fmt.Errorf("mkdir %s: %w", d.path, err)
         }
-        if err := system.Run("chown", d.owner, d.path); err != nil {
+        if err := system.SudoRun("chown", d.owner, d.path); err != nil {
             return err
         }
-        if err := os.Chmod(d.path, d.mode); err != nil {
+        if err := system.SudoRun("chmod", fmt.Sprintf("%o", d.mode), d.path); err != nil {
             return fmt.Errorf("chmod %s: %w", d.path, err)
         }
     }
@@ -61,21 +61,21 @@ net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
 `
-    if err := os.WriteFile("/etc/sysctl.d/99-disable-ipv6.conf", []byte(content), 0644); err != nil {
+    if err := system.SudoWriteFile("/etc/sysctl.d/99-disable-ipv6.conf", []byte(content), 0644); err != nil {
         return err
     }
-    return system.RunSilent("sysctl", "--system")
+    return system.SudoRunSilent("sysctl", "--system")
 }
 
 func configureFirewall(cfg *config.AppConfig) error {
-    if err := system.Run("apt-get", "install", "-y", "-qq", "ufw"); err != nil {
+    if err := system.SudoRun("apt-get", "install", "-y", "-qq", "ufw"); err != nil {
         return err
     }
 
-    ufwDefault, err := os.ReadFile("/etc/default/ufw")
+    ufwDefault, err := system.SudoRunOutput("cat", "/etc/default/ufw")
     if err == nil {
-        content := strings.ReplaceAll(string(ufwDefault), "IPV6=yes", "IPV6=no")
-        os.WriteFile("/etc/default/ufw", []byte(content), 0644)
+        content := strings.ReplaceAll(ufwDefault, "IPV6=yes", "IPV6=no")
+        system.SudoWriteFile("/etc/default/ufw", []byte(content), 0644)
     }
 
     commands := [][]string{
@@ -91,7 +91,7 @@ func configureFirewall(cfg *config.AppConfig) error {
     commands = append(commands, []string{"ufw", "--force", "enable"})
 
     for _, args := range commands {
-        if err := system.Run(args[0], args[1:]...); err != nil {
+        if err := system.SudoRun(args[0], args[1:]...); err != nil {
             return err
         }
     }
@@ -99,7 +99,7 @@ func configureFirewall(cfg *config.AppConfig) error {
 }
 
 func installUnattendedUpgrades() error {
-    return system.Run("apt-get", "install", "-y", "-qq",
+    return system.SudoRun("apt-get", "install", "-y", "-qq",
         "unattended-upgrades", "apt-listchanges")
 }
 
@@ -108,7 +108,7 @@ func configureUnattendedUpgrades() error {
 APT::Periodic::Unattended-Upgrade "1";
 APT::Periodic::AutocleanInterval "7";
 `
-    if err := os.WriteFile("/etc/apt/apt.conf.d/20auto-upgrades",
+    if err := system.SudoWriteFile("/etc/apt/apt.conf.d/20auto-upgrades",
         []byte(autoConf), 0644); err != nil {
         return err
     }
@@ -122,12 +122,12 @@ Unattended-Upgrade::Automatic-Reboot-Time "04:00";
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
 `
-    return os.WriteFile("/etc/apt/apt.conf.d/50unattended-upgrades",
+    return system.SudoWriteFile("/etc/apt/apt.conf.d/50unattended-upgrades",
         []byte(upgradeConf), 0644)
 }
 
 func installFail2ban() error {
-    return system.Run("apt-get", "install", "-y", "-qq", "fail2ban")
+    return system.SudoRun("apt-get", "install", "-y", "-qq", "fail2ban")
 }
 
 func configureFail2ban() error {
@@ -140,12 +140,12 @@ maxretry = 5
 findtime = 600
 bantime = 600
 `
-    if err := os.WriteFile("/etc/fail2ban/jail.local",
+    if err := system.SudoWriteFile("/etc/fail2ban/jail.local",
         []byte(content), 0644); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "enable", "fail2ban"); err != nil {
+    if err := system.SudoRun("systemctl", "enable", "fail2ban"); err != nil {
         return err
     }
-    return system.Run("systemctl", "restart", "fail2ban")
+    return system.SudoRun("systemctl", "restart", "fail2ban")
 }

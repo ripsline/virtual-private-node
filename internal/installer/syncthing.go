@@ -14,10 +14,10 @@ import (
 // ── Syncthing XML config types ───────────────────────────
 
 type syncthingConfig struct {
-    XMLName xml.Name       `xml:"configuration"`
-    GUI     syncthingGUI   `xml:"gui"`
-    Options syncthingOpts  `xml:"options"`
-    Rest    []byte         `xml:",innerxml"`
+    XMLName xml.Name      `xml:"configuration"`
+    GUI     syncthingGUI  `xml:"gui"`
+    Options syncthingOpts `xml:"options"`
+    Rest    []byte        `xml:",innerxml"`
 }
 
 type syncthingGUI struct {
@@ -41,22 +41,22 @@ type syncthingOpts struct {
 }
 
 func installSyncthingRepo() error {
-    os.MkdirAll("/etc/apt/keyrings", 0755)
-    if err := system.Run("curl", "-L", "-o",
+    system.SudoRun("mkdir", "-p", "/etc/apt/keyrings")
+    if err := system.SudoRun("curl", "-L", "-o",
         "/etc/apt/keyrings/syncthing-archive-keyring.gpg",
         "https://syncthing.net/release-key.gpg"); err != nil {
         return err
     }
     repoLine := `deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2`
-    return os.WriteFile("/etc/apt/sources.list.d/syncthing.list",
+    return system.SudoWriteFile("/etc/apt/sources.list.d/syncthing.list",
         []byte(repoLine+"\n"), 0644)
 }
 
 func installSyncthingPackage() error {
-    if err := system.Run("apt-get", "update", "-qq"); err != nil {
+    if err := system.SudoRun("apt-get", "update", "-qq"); err != nil {
         return err
     }
-    return system.Run("apt-get", "install", "-y", "-qq", "syncthing")
+    return system.SudoRun("apt-get", "install", "-y", "-qq", "syncthing")
 }
 
 func createSyncthingDirs() error {
@@ -70,13 +70,15 @@ func createSyncthingDirs() error {
         {"/var/lib/syncthing/lnd-backup", systemUser + ":" + systemUser, 0750},
     }
     for _, d := range dirs {
-        if err := os.MkdirAll(d.path, d.mode); err != nil {
+        if err := system.SudoRun("mkdir", "-p", d.path); err != nil {
             return err
         }
-        if err := system.Run("chown", d.owner, d.path); err != nil {
+        if err := system.SudoRun("chown", d.owner, d.path); err != nil {
             return err
         }
-        os.Chmod(d.path, d.mode)
+        if err := system.SudoRun("chmod", fmt.Sprintf("%o", d.mode), d.path); err != nil {
+            return err
+        }
     }
     return nil
 }
@@ -100,26 +102,26 @@ RestartForceExitStatus=3 4
 [Install]
 WantedBy=multi-user.target
 `, systemUser, systemUser)
-    return os.WriteFile("/etc/systemd/system/syncthing.service",
+    return system.SudoWriteFile("/etc/systemd/system/syncthing.service",
         []byte(content), 0644)
 }
 
 func configureSyncthingAuth(password string) error {
-    system.RunSilent("chown", systemUser+":"+systemUser, "/etc/syncthing")
+    system.SudoRunSilent("chown", systemUser+":"+systemUser, "/etc/syncthing")
 
-    if err := system.Run("sudo", "-u", systemUser, "syncthing",
+    if err := system.SudoRun("sudo", "-u", systemUser, "syncthing",
         "generate", "--home=/etc/syncthing"); err != nil {
         return fmt.Errorf("syncthing generate: %w", err)
     }
 
     configPath := "/etc/syncthing/config.xml"
-    data, err := os.ReadFile(configPath)
+    output, err := system.SudoRunOutput("cat", configPath)
     if err != nil {
         return fmt.Errorf("read config: %w", err)
     }
 
     var cfg syncthingConfig
-    if err := xml.Unmarshal(data, &cfg); err != nil {
+    if err := xml.Unmarshal([]byte(output), &cfg); err != nil {
         return fmt.Errorf("parse config: %w", err)
     }
 
@@ -143,18 +145,18 @@ func configureSyncthingAuth(password string) error {
     cfg.Options.ListenAddresses = []string{"tcp://127.0.0.1:22000"}
 
     // Marshal back
-    output, err := xml.MarshalIndent(cfg, "", "    ")
+    xmlOutput, err := xml.MarshalIndent(cfg, "", "    ")
     if err != nil {
         return fmt.Errorf("marshal config: %w", err)
     }
 
     xmlHeader := []byte(xml.Header)
-    output = append(xmlHeader, output...)
+    xmlOutput = append(xmlHeader, xmlOutput...)
 
-    if err := os.WriteFile(configPath, output, 0640); err != nil {
+    if err := system.SudoWriteFile(configPath, xmlOutput, 0640); err != nil {
         return err
     }
-    return system.Run("chown", systemUser+":"+systemUser, configPath)
+    return system.SudoRun("chown", systemUser+":"+systemUser, configPath)
 }
 
 func setupChannelBackupWatcher(cfg *config.AppConfig) error {
@@ -176,7 +178,7 @@ Unit=lnd-backup-copy.service
 [Install]
 WantedBy=multi-user.target
 `, backupSource)
-    if err := os.WriteFile("/etc/systemd/system/lnd-backup-watch.path",
+    if err := system.SudoWriteFile("/etc/systemd/system/lnd-backup-watch.path",
         []byte(pathUnit), 0644); err != nil {
         return err
     }
@@ -189,35 +191,33 @@ Type=oneshot
 User=%s
 ExecStart=/bin/cp %s %s
 `, systemUser, backupSource, backupDest)
-    if err := os.WriteFile("/etc/systemd/system/lnd-backup-copy.service",
+    if err := system.SudoWriteFile("/etc/systemd/system/lnd-backup-copy.service",
         []byte(copyService), 0644); err != nil {
         return err
     }
 
-    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+    if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "enable", "lnd-backup-watch.path"); err != nil {
+    if err := system.SudoRun("systemctl", "enable", "lnd-backup-watch.path"); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "start", "lnd-backup-watch.path"); err != nil {
+    if err := system.SudoRun("systemctl", "start", "lnd-backup-watch.path"); err != nil {
         return err
     }
 
     // Copy existing backup if present
-    if _, err := os.Stat(backupSource); err == nil {
-        system.RunSilent("cp", backupSource, backupDest)
-        system.RunSilent("chown", systemUser+":"+systemUser, backupDest)
-    }
+    system.SudoRunSilent("cp", backupSource, backupDest)
+    system.SudoRunSilent("chown", systemUser+":"+systemUser, backupDest)
     return nil
 }
 
 func startSyncthing() error {
-    if err := system.Run("systemctl", "daemon-reload"); err != nil {
+    if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
         return err
     }
-    if err := system.Run("systemctl", "enable", "syncthing"); err != nil {
+    if err := system.SudoRun("systemctl", "enable", "syncthing"); err != nil {
         return err
     }
-    return system.Run("systemctl", "start", "syncthing")
+    return system.SudoRun("systemctl", "start", "syncthing")
 }
