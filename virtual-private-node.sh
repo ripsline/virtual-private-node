@@ -13,7 +13,7 @@ set -eo pipefail
 #   curl -sL ripsline.com/virtual-private-node.sh | bash -s -- --testnet4
 # ═══════════════════════════════════════════════════════════
 
-VERSION="0.2.1"
+VERSION="0.2.2"
 BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
@@ -73,7 +73,9 @@ if id "$ADMIN_USER" &>/dev/null; then
     echo "  User $ADMIN_USER already exists, skipping."
     PASSWORD="(unchanged)"
 else
+    set +o pipefail
     PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
+    set -o pipefail
     if [ ${#PASSWORD} -lt 25 ]; then
         echo "ERROR: Failed to generate secure password."
         exit 1
