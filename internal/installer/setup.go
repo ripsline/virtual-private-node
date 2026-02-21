@@ -5,6 +5,7 @@ import (
     "os"
     "os/exec"
     "strings"
+    "time"
 
     tea "github.com/charmbracelet/bubbletea"
     "github.com/charmbracelet/lipgloss"
@@ -29,8 +30,17 @@ func LitVersionStr() string { return litVersion }
 func LndVersionStr() string { return lndVersion }
 
 func NeedsInstall() bool {
-    _, err := os.Stat("/usr/local/bin/bitcoind")
-    return err != nil
+    checks := []string{
+        "/usr/local/bin/bitcoind",
+        "/etc/bitcoin/bitcoin.conf",
+        "/etc/systemd/system/bitcoind.service",
+    }
+    for _, path := range checks {
+        if _, err := os.Stat(path); err != nil {
+            return true
+        }
+    }
+    return false
 }
 
 // ── Install progress TUI ─────────────────────────────────
@@ -428,6 +438,60 @@ func RunLNDInstall(cfg *config.AppConfig) error {
     return config.Save(cfg)
 }
 
+func RunP2PModeUpgrade(cfg *config.AppConfig) error {
+    if cfg.P2PMode == "hybrid" {
+        return nil
+    }
+
+    publicIPv4 := system.PublicIPv4()
+    if publicIPv4 == "" {
+        ShowInfoBox(
+            theme.Header.Render("Cannot Detect Public IP") + "\n\n" +
+                theme.Value.Render("Could not determine your server's public IP.") + "\n" +
+                theme.Value.Render("Hybrid mode requires a public IPv4 address.") + "\n\n" +
+                theme.Dim.Render("Press Enter to return..."))
+        return nil
+    }
+
+    confirmMsg := theme.Header.Render("Upgrade to Hybrid P2P Mode") + "\n\n" +
+        theme.Value.Render("This will:") + "\n\n" +
+        theme.Value.Render("  • Expose your server IP to the Lightning Network") + "\n" +
+        theme.Value.Render("  • Open ports 9735 and 8080 in the firewall") + "\n" +
+        theme.Value.Render("  • Allow Zeus to connect over clearnet") + "\n" +
+        theme.Value.Render("  • Regenerate LND TLS certificate") + "\n" +
+        theme.Value.Render("  • Restart LND") + "\n\n" +
+        theme.Warning.Render("Your IP: " + publicIPv4) + "\n" +
+        theme.Warning.Render("This cannot be undone — your IP will be public.") + "\n\n" +
+        theme.Dim.Render("Enter to proceed • backspace to cancel")
+    if !ShowConfirmBox(confirmMsg) {
+        return nil
+    }
+
+    cfg.P2PMode = "hybrid"
+
+    steps := []installStep{
+        {name: "Removing old TLS certificate", fn: func() error {
+            system.SudoRunSilent("rm", "-f", "/var/lib/lnd/tls.cert", "/var/lib/lnd/tls.key")
+            return nil
+        }},
+        {name: "Updating LND config", fn: func() error {
+            return writeLNDConfig(cfg, publicIPv4)
+        }},
+        {name: "Updating firewall", fn: func() error {
+            return configureFirewall(cfg)
+        }},
+        {name: "Restarting LND", fn: func() error {
+            return system.SudoRun("systemctl", "restart", "lnd")
+        }},
+    }
+
+    if err := RunInstallTUI(steps, appVersion); err != nil {
+        cfg.P2PMode = "tor"
+        return err
+    }
+    return config.Save(cfg)
+}
+
 // ── LIT installation ─────────────────────────────────────
 
 func RunLITInstall(cfg *config.AppConfig) error {
@@ -515,19 +579,6 @@ func RunSyncthingInstall(cfg *config.AppConfig) error {
     return config.Save(cfg)
 }
 
-// ── Prune size change ────────────────────────────────────
-
-func RunPruneSizeChange(cfg *config.AppConfig, newSize int) error {
-    cfg.PruneSize = newSize
-    if err := writeBitcoinConfig(cfg); err != nil {
-        return err
-    }
-    if err := system.Run("systemctl", "restart", "bitcoind"); err != nil {
-        return err
-    }
-    return config.Save(cfg)
-}
-
 // ── Choice box ───────────────────────────────────────────
 
 type choiceBoxModel struct {
@@ -587,7 +638,7 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 
     baseURL := fmt.Sprintf(
         "https://github.com/ripsline/virtual-private-node/releases/download/v%s", newVersion)
-    pubkeyURL := "https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/ripsline-signing-key.asc"
+    expectedFP := "AFA0EBACDC9A4C4AA7B0154AC97CE10F170BA5FE"
     tarball := fmt.Sprintf("rlvpn-%s-amd64.tar.gz", newVersion)
 
     steps := []installStep{
@@ -601,12 +652,17 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
             return system.Download(baseURL+"/SHA256SUMS.asc", "/tmp/rlvpn-SHA256SUMS.asc")
         }},
         {name: "Importing release key", fn: func() error {
-            keyFile := "/tmp/rlvpn-release.pub.asc"
-            if err := system.Download(pubkeyURL, keyFile); err != nil {
-                return err
+            if err := system.Run("gpg", "--batch", "--keyserver",
+                "hkps://keys.openpgp.org", "--recv-keys", expectedFP); err != nil {
+                return fmt.Errorf("could not import signing key from keyserver: %w", err)
             }
-            defer os.Remove(keyFile)
-            return system.SudoRun("gpg", "--batch", "--import", keyFile)
+            cmd := exec.Command("gpg", "--batch", "--with-colons",
+                "--list-keys", expectedFP)
+            output, err := cmd.CombinedOutput()
+            if err != nil || !strings.Contains(string(output), expectedFP) {
+                return fmt.Errorf("release key fingerprint mismatch")
+            }
+            return nil
         }},
         {name: "Verifying signature", fn: func() error {
             cmd := exec.Command("gpg", "--batch", "--verify",
@@ -645,25 +701,58 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
     return RunInstallTUI(steps, appVersion)
 }
 
+const versionCachePath = "/tmp/rlvpn-latest-version"
+const versionCacheMaxAge = 24 * time.Hour
+
 func CheckLatestVersion() string {
+    // Check cache first
+    if cached := readVersionCache(); cached != "" {
+        return cached
+    }
+
     output, err := system.RunContext(10e9, "curl", "-sL",
         "https://api.github.com/repos/ripsline/virtual-private-node/releases/latest")
     if err != nil {
         return ""
     }
-    // Simple parse — look for "tag_name": "v0.2.1"
+
+    var version string
     for _, line := range strings.Split(output, "\n") {
         line = strings.TrimSpace(line)
         if strings.HasPrefix(line, `"tag_name"`) {
             parts := strings.Split(line, `"`)
             for _, p := range parts {
                 if len(p) > 1 && p[0] == 'v' {
-                    return p[1:] // strip the v
+                    version = p[1:]
+                    break
                 }
             }
         }
     }
-    return ""
+
+    if version != "" {
+        writeVersionCache(version)
+    }
+    return version
+}
+
+func readVersionCache() string {
+    info, err := os.Stat(versionCachePath)
+    if err != nil {
+        return ""
+    }
+    if time.Since(info.ModTime()) > versionCacheMaxAge {
+        return ""
+    }
+    data, err := os.ReadFile(versionCachePath)
+    if err != nil {
+        return ""
+    }
+    return strings.TrimSpace(string(data))
+}
+
+func writeVersionCache(version string) {
+    os.WriteFile(versionCachePath, []byte(version), 0644)
 }
 
 func GetVersion() string {

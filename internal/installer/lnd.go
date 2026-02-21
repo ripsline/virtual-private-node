@@ -74,10 +74,14 @@ func writeLNDConfig(cfg *config.AppConfig, publicIPv4 string) error {
     restOnion := strings.TrimSpace(readFileOrDefault("/var/lib/tor/lnd-rest/hostname", ""))
 
     listenLine := "listen=localhost:9735"
+    restListenLine := "restlisten=localhost:8080"
     externalLine := ""
+    tlsExtraIP := ""
     if cfg.P2PMode == "hybrid" && publicIPv4 != "" {
         listenLine = "listen=0.0.0.0:9735"
+        restListenLine = "restlisten=0.0.0.0:8080"
         externalLine = fmt.Sprintf("externalhosts=%s:9735", publicIPv4)
+        tlsExtraIP = fmt.Sprintf("tlsextraip=%s", publicIPv4)
     }
 
     tlsExtraDomain := ""
@@ -92,8 +96,9 @@ func writeLNDConfig(cfg *config.AppConfig, publicIPv4 string) error {
 lnddir=/var/lib/lnd
 %s
 rpclisten=localhost:10009
-restlisten=localhost:8080
+%s
 debuglevel=info
+%s
 %s
 %s
 
@@ -116,7 +121,7 @@ tor.control=127.0.0.1:9051
 tor.targetipaddress=127.0.0.1
 tor.v3=true
 tor.streamisolation=true
-`, listenLine, externalLine, tlsExtraDomain,
+`, listenLine, restListenLine, externalLine, tlsExtraDomain, tlsExtraIP,
         net.LNDBitcoinFlag, cookiePath,
         net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
 
@@ -221,14 +226,16 @@ func waitForLND() error {
 }
 
 func buildLNDClient() *http.Client {
-    tlsConfig := &tls.Config{InsecureSkipVerify: true}
+    tlsConfig := &tls.Config{}
     certData, err := os.ReadFile("/var/lib/lnd/tls.cert")
     if err == nil {
         pool := x509.NewCertPool()
         if pool.AppendCertsFromPEM(certData) {
-            tlsConfig = &tls.Config{RootCAs: pool}
+            tlsConfig.RootCAs = pool
         }
     }
+    // If cert isn't available yet, the connection will fail and
+    // waitForLND will retry. No InsecureSkipVerify fallback.
     return &http.Client{
         Transport: &http.Transport{TLSClientConfig: tlsConfig},
         Timeout:   5 * time.Second,

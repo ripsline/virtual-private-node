@@ -13,9 +13,7 @@ func TestTorConfigBitcoinOnly(t *testing.T) {
 
     required := []string{
         "SOCKSPort 9050",
-        "bitcoin-rpc",
         "bitcoin-p2p",
-        "HiddenServicePort 8332",
         "HiddenServicePort 8333",
     }
     for _, req := range required {
@@ -26,6 +24,7 @@ func TestTorConfigBitcoinOnly(t *testing.T) {
 
     forbidden := []string{
         "ControlPort",
+        "bitcoin-rpc",
         "lnd-rest",
         "lnd-grpc",
         "lnd-lit",
@@ -48,7 +47,7 @@ func TestTorConfigWithLND(t *testing.T) {
         "ControlPort 9051",
         "CookieAuthentication 1",
         "CookieAuthFileGroupReadable 1",
-        "bitcoin-rpc",
+        "bitcoin-p2p",
         "lnd-grpc",
         "lnd-rest",
         "HiddenServicePort 10009",
@@ -124,7 +123,6 @@ func TestTorConfigFullStack(t *testing.T) {
     required := []string{
         "SOCKSPort 9050",
         "ControlPort 9051",
-        "bitcoin-rpc",
         "bitcoin-p2p",
         "lnd-grpc",
         "lnd-rest",
@@ -139,15 +137,27 @@ func TestTorConfigFullStack(t *testing.T) {
     }
 }
 
+func TestTorConfigMainnetPorts(t *testing.T) {
+    cfg := config.Default()
+    content := BuildTorConfig(cfg)
+
+    if !strings.Contains(content, "HiddenServicePort 8333") {
+        t.Error("mainnet torrc should use port 8333 for P2P")
+    }
+    if strings.Contains(content, "HiddenServicePort 8332") {
+        t.Error("mainnet torrc should not have RPC hidden service")
+    }
+}
+
 func TestTorConfigTestnet4Ports(t *testing.T) {
     cfg := &config.AppConfig{Network: "testnet4"}
     content := BuildTorConfig(cfg)
 
-    if !strings.Contains(content, "HiddenServicePort 48332") {
-        t.Error("testnet4 torrc should use port 48332 for RPC")
-    }
     if !strings.Contains(content, "HiddenServicePort 48333") {
         t.Error("testnet4 torrc should use port 48333 for P2P")
+    }
+    if strings.Contains(content, "HiddenServicePort 48332") {
+        t.Error("testnet4 torrc should not have RPC hidden service")
     }
 }
 

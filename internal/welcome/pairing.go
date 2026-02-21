@@ -13,14 +13,11 @@ import (
 )
 
 func (m Model) viewPairing(bw int) string {
-    halfW := (bw - 4) / 2
-    cardH := theme.BoxHeight / 2
+    cardW := bw - 2
+    cardH := theme.BoxHeight
 
-    zeusCard := m.zeusCard(halfW, cardH)
-    sparrowCard := m.sparrowCard(halfW, cardH)
-
-    top := lipgloss.JoinHorizontal(lipgloss.Top, zeusCard, "  ", sparrowCard)
-    return top
+    zeusCard := m.zeusCard(cardW, cardH)
+    return zeusCard
 }
 
 func (m Model) zeusCard(w, h int) string {
@@ -31,7 +28,11 @@ func (m Model) zeusCard(w, h int) string {
         restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
         lines = append(lines, theme.Lightning.Render("⚡️ Zeus Wallet"))
         lines = append(lines, "")
-        lines = append(lines, theme.Dim.Render("LND REST over Tor"))
+        if m.cfg.P2PMode == "hybrid" {
+            lines = append(lines, theme.Dim.Render("LND REST — Clearnet + Tor"))
+        } else {
+            lines = append(lines, theme.Dim.Render("LND REST over Tor"))
+        }
         lines = append(lines, "")
         if restOnion != "" {
             lines = append(lines, theme.GreenDot.Render("●")+" ready")
@@ -51,34 +52,7 @@ func (m Model) zeusCard(w, h int) string {
     }
 
     border := theme.NormalBorder
-    if m.pairingFocus == 0 {
-        if zeusEnabled {
-            border = theme.SelectedBorder
-        } else {
-            border = theme.GrayedBorder
-        }
-    }
-    return border.Width(w).Padding(1, 2).Render(padLines(lines, h))
-}
-
-func (m Model) sparrowCard(w, h int) string {
-    var lines []string
-    btcRPC := readOnion("/var/lib/tor/bitcoin-rpc/hostname")
-
-    lines = append(lines, theme.Bitcoin.Render("₿ Sparrow Wallet"))
-    lines = append(lines, "")
-    lines = append(lines, theme.Dim.Render("Bitcoin Core RPC / Tor"))
-    lines = append(lines, "")
-    if btcRPC != "" {
-        lines = append(lines, theme.GreenDot.Render("●")+" ready")
-    } else {
-        lines = append(lines, theme.RedDot.Render("●")+" waiting for Tor")
-    }
-    lines = append(lines, "")
-    lines = append(lines, theme.Action.Render("Select for setup ▸"))
-
-    border := theme.NormalBorder
-    if m.pairingFocus == 1 {
+    if zeusEnabled {
         border = theme.SelectedBorder
     }
     return border.Width(w).Padding(1, 2).Render(padLines(lines, h))
@@ -87,74 +61,73 @@ func (m Model) sparrowCard(w, h int) string {
 func (m Model) viewZeus() string {
     bw := min(m.width-4, theme.ContentWidth)
     var lines []string
-    lines = append(lines, theme.Lightning.Render("⚡️ Zeus Wallet — LND REST over Tor"))
+    lines = append(lines, theme.Lightning.Render("⚡️ Zeus Wallet — LND REST"))
     lines = append(lines, "")
+
     restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
+
+    if m.cfg.P2PMode == "hybrid" {
+        lines = append(lines, theme.Header.Render("  Clearnet Connection"))
+        lines = append(lines, "")
+        if m.status != nil && m.status.publicIP != "" {
+            lines = append(lines, "  "+theme.Label.Render("Server: ")+
+                theme.Mono.Render(m.status.publicIP))
+            lines = append(lines, "  "+theme.Label.Render("REST Port: ")+
+                theme.Mono.Render("8080"))
+            lines = append(lines, "  "+theme.Dim.Render("  First connect: accept the certificate warning."))
+            lines = append(lines, "  "+theme.Dim.Render("  The connection is encrypted."))
+        } else {
+            lines = append(lines, "  "+theme.Dim.Render("Public IP not available"))
+        }
+        lines = append(lines, "")
+        lines = append(lines, theme.Header.Render("  Tor Connection"))
+        lines = append(lines, "")
+    }
+
     if restOnion == "" {
-        lines = append(lines, theme.Warn.Render("Not available yet."))
+        lines = append(lines, "  "+theme.Warn.Render("Tor address not available yet."))
     } else {
-        lines = append(lines, "  "+theme.Label.Render("Type: ")+theme.Mono.Render("LND (REST)"))
-        lines = append(lines, "")
-        lines = append(lines, "  "+theme.Label.Render("Server address:"))
-        lines = append(lines, "  "+theme.Mono.Render(restOnion))
-        lines = append(lines, "  "+theme.Label.Render("REST Port: ")+theme.Mono.Render("8080"))
-        lines = append(lines, "")
-        mac := readMacaroonHex(m.cfg)
-        if mac != "" {
-            preview := mac[:min(40, len(mac))] + "..."
-            lines = append(lines, "  "+theme.Label.Render("Macaroon (Hex format):"))
-            lines = append(lines, "  "+theme.Mono.Render(preview))
+        if m.cfg.P2PMode != "hybrid" {
+            lines = append(lines, "  "+theme.Label.Render("Type: ")+
+                theme.Mono.Render("LND (REST)"))
             lines = append(lines, "")
+        }
+        lines = append(lines, "  "+theme.Label.Render("Server: ")+
+            theme.Mono.Render(restOnion))
+        lines = append(lines, "  "+theme.Label.Render("REST Port: ")+
+            theme.Mono.Render("8080"))
+    }
+
+    lines = append(lines, "")
+    mac := readMacaroonHex(m.cfg)
+    if mac != "" {
+        preview := mac[:min(40, len(mac))] + "..."
+        lines = append(lines, "  "+theme.Label.Render("Macaroon (Hex format):"))
+        lines = append(lines, "  "+theme.Mono.Render(preview))
+        lines = append(lines, "")
+        if m.cfg.P2PMode == "hybrid" {
+            lines = append(lines, "  "+theme.Action.Render("[m] full macaroon  [r] QR (Tor)  [c] QR (Clearnet)"))
+        } else {
             lines = append(lines, "  "+theme.Action.Render("[m] full macaroon    [r] QR code"))
         }
     }
+
     lines = append(lines, "")
     lines = append(lines, theme.Dim.Render("1. download & verify Zeus"))
-    lines = append(lines, theme.Dim.Render("2. Advanced Set-Up"))
-    lines = append(lines, theme.Dim.Render("3. Create or connect a wallet"))
-    lines = append(lines, theme.Dim.Render("4. Server address, REST Port, Macaroon above"))
+    lines = append(lines, theme.Dim.Render("2. Advanced Set-Up → LND (REST)"))
+    lines = append(lines, theme.Dim.Render("3. Enter connection details or scan QR"))
+    if m.cfg.P2PMode == "hybrid" {
+        lines = append(lines, theme.Dim.Render("4. Clearnet is faster, Tor is more private"))
+    }
 
     box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
     title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" Zeus Wallet Setup ")
-    footer := theme.Footer.Render("  m macaroon • r QR • backspace back • q quit  ")
-    full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
-    return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
-}
-
-func (m Model) viewSparrow() string {
-    bw := min(m.width-4, theme.ContentWidth)
-    var lines []string
-    lines = append(lines, theme.Header.Render("₿ Sparrow — Bitcoin Core RPC over Tor"))
-    lines = append(lines, "")
-    lines = append(lines, theme.Warning.Render("WARNING: Cookie changes on restart."))
-    lines = append(lines, theme.Warning.Render("WARNING: Reconnect Sparrow after reboot."))
-    lines = append(lines, "")
-    btcRPC := readOnion("/var/lib/tor/bitcoin-rpc/hostname")
-    if btcRPC != "" {
-        port := "8332"
-        if !m.cfg.IsMainnet() {
-            port = "48332"
-        }
-        cookie := readCookieValue(m.cfg)
-        lines = append(lines, "  "+theme.Label.Render("URL:"))
-        lines = append(lines, "  "+theme.Mono.Render(btcRPC))
-        lines = append(lines, "  "+theme.Label.Render("Port: ")+theme.Mono.Render(port))
-        lines = append(lines, "")
-        lines = append(lines, "  "+theme.Label.Render("User: ")+theme.Mono.Render("__cookie__"))
-        if cookie != "" {
-            lines = append(lines, "  "+theme.Label.Render("Password:"))
-            lines = append(lines, "  "+theme.Mono.Render(cookie))
-        }
+    var footer string
+    if m.cfg.P2PMode == "hybrid" {
+        footer = theme.Footer.Render("  m macaroon • r QR (Tor) • c QR (Clearnet) • backspace back • q quit  ")
+    } else {
+        footer = theme.Footer.Render("  m macaroon • r QR • backspace back • q quit  ")
     }
-    lines = append(lines, "")
-    lines = append(lines, theme.Dim.Render("1. download & verify Sparrow Wallet"))
-    lines = append(lines, theme.Dim.Render("2. Sparrow → Settings → Server"))
-    lines = append(lines, theme.Dim.Render("3. Bitcoin Core tab, enter details above"))
-    lines = append(lines, theme.Dim.Render("4. Test Connection"))
-
-    box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
-    title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" Sparrow Wallet Setup ")
-    footer := theme.Footer.Render("  backspace back • q quit  ")
     full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
     return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
 }
@@ -162,14 +135,26 @@ func (m Model) viewSparrow() string {
 func (m Model) viewQR() string {
     restOnion := readOnion("/var/lib/tor/lnd-rest/hostname")
     mac := readMacaroonHex(m.cfg)
-    if restOnion == "" || mac == "" {
+
+    var uri string
+    var label string
+
+    if m.qrMode == "clearnet" && m.status != nil && m.status.publicIP != "" {
+        uri = fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
+            m.status.publicIP, hexToBase64URL(mac))
+        label = "Clearnet QR — " + m.status.publicIP + ":8080"
+    } else if restOnion != "" && mac != "" {
+        uri = fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
+            restOnion, hexToBase64URL(mac))
+        label = "Tor QR — " + restOnion[:20] + "..."
+    } else {
         return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
             theme.Warn.Render("QR not available."))
     }
-    uri := fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
-        restOnion, hexToBase64URL(mac))
+
     qr := renderQRCode(uri)
     var lines []string
+    lines = append(lines, theme.Header.Render(label))
     lines = append(lines, theme.Dim.Render("Zoom out: Cmd+Minus / Ctrl+Minus"))
     if qr != "" {
         lines = append(lines, qr)

@@ -26,7 +26,6 @@ const (
     svNone wSubview = iota
     svLightning
     svZeus
-    svSparrow
     svSyncthingDetail
     svLITDetail
     svQR
@@ -39,6 +38,7 @@ const (
     svLogView
     svMacaroonShell
     svSelfUpdate
+    svP2PUpgrade
 )
 
 type cardPos int
@@ -65,6 +65,13 @@ type statusMsg struct {
     btcProgress                  float64
     btcSynced, btcResponding     bool
     rebootRequired               bool
+    lndPubkey                    string
+    lndChannels                  int
+    lndBalance                   string
+    lndSyncedChain               bool
+    lndSyncedGraph               bool
+    lndResponding                bool
+    publicIP                     string
 }
 
 // ── Model ────────────────────────────────────────────────
@@ -81,18 +88,13 @@ type Model struct {
     sysConfirm          string
     logSvcName          string
     addonFocus          int
-    pairingFocus        int
     urlTarget           string
+    qrMode              string
     width               int
     height              int
     shellAction         wSubview
     status              *statusMsg
     settingsFocus       int
-    settingsCursor      int
-    settingsCustom      bool
-    settingsInput       string
-    settingsConfirm     string
-    settingsPendingSize int
     latestVersion       string
     updateConfirm       bool
 }
@@ -150,6 +152,12 @@ func Show(cfg *config.AppConfig, version string) {
             continue
         case svSelfUpdate:
             installer.RunSelfUpdate(cfg, final.latestVersion)
+            continue
+        case svP2PUpgrade:
+            installer.RunP2PModeUpgrade(cfg)
+            if u, e := config.Load(); e == nil {
+                cfg = u
+            }
             continue
         default:
             return

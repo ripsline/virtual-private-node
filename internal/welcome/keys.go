@@ -65,8 +65,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
             }
         case "r":
             if m.subview == svZeus {
+                m.qrMode = "tor"
                 m.subview = svQR
                 return m, nil
+            }
+        case "c":
+            if m.subview == svZeus && m.cfg.P2PMode == "hybrid" {
+                m.qrMode = "clearnet"
+                m.subview = svQR
+                return m, nil
+            }
+        case "p":
+            if m.subview == svLightning && m.cfg.P2PMode == "tor" && m.cfg.HasLND() {
+                m.shellAction = svP2PUpgrade
+                return m, tea.Quit
             }
         case "u":
             if m.subview == svSyncthingDetail {
@@ -101,14 +113,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
             return m, tea.Quit
         case "tab":
             m.activeTab = (m.activeTab + 1) % 4
-            m.settingsCustom = false
-            m.settingsConfirm = ""
             m.updateConfirm = false
             return m, nil
         case "shift+tab":
             m.activeTab = (m.activeTab + 3) % 4
-            m.settingsCustom = false
-            m.settingsConfirm = ""
             m.updateConfirm = false
             return m, nil
         default:
@@ -283,11 +291,11 @@ func (m Model) navLeft() Model {
             m.dashCard = cardBitcoin
         }
     case tabPairing:
-        m.pairingFocus = 0
+        // Single card, no navigation needed
     case tabAddons:
         m.addonFocus = 0
     case tabSettings:
-        m.settingsFocus = 0
+        // Single card, no navigation needed
     }
     return m
 }
@@ -301,11 +309,11 @@ func (m Model) navRight() Model {
             m.dashCard = cardLightning
         }
     case tabPairing:
-        m.pairingFocus = 1
+        // Single card, no navigation needed
     case tabAddons:
         m.addonFocus = 1
     case tabSettings:
-        m.settingsFocus = 1
+        // Single card, no navigation needed
     }
     return m
 }
@@ -333,10 +341,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
             m.subview = svLightning
         }
     case tabPairing:
-        if m.pairingFocus == 0 && m.cfg.HasLND() && m.cfg.WalletExists() {
+        if m.cfg.HasLND() && m.cfg.WalletExists() {
             m.subview = svZeus
-        } else if m.pairingFocus == 1 {
-            m.subview = svSparrow
         }
     case tabAddons:
         return m.handleAddonEnter()

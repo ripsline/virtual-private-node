@@ -3,6 +3,7 @@ package welcome
 import (
     "github.com/ripsline/virtual-private-node/internal/bitcoin"
     "github.com/ripsline/virtual-private-node/internal/config"
+    "github.com/ripsline/virtual-private-node/internal/lnd"
     "github.com/ripsline/virtual-private-node/internal/system"
 
     tea "github.com/charmbracelet/bubbletea"
@@ -49,6 +50,25 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
         s.btcHeaders = info.Headers
         s.btcProgress = info.Progress
         s.btcSynced = info.Synced
+
+        if cfg.HasLND() && cfg.WalletExists() {
+            lndInfo, err := lnd.GetInfo(cfg.Network)
+            if err == nil {
+                s.lndResponding = true
+                s.lndPubkey = lndInfo.Pubkey
+                s.lndChannels = lndInfo.Channels
+                s.lndSyncedChain = lndInfo.SyncedChain
+                s.lndSyncedGraph = lndInfo.SyncedGraph
+            }
+            bal, err := lnd.GetBalance(cfg.Network)
+            if err == nil && bal.TotalBalance != "" {
+                s.lndBalance = bal.TotalBalance
+            }
+        }
+
+        if cfg.P2PMode == "hybrid" {
+            s.publicIP = system.PublicIPv4()
+        }
 
         return s
     }

@@ -7,7 +7,6 @@ import (
     "github.com/charmbracelet/lipgloss"
 
     "github.com/ripsline/virtual-private-node/internal/bitcoin"
-    "github.com/ripsline/virtual-private-node/internal/lnd"
     "github.com/ripsline/virtual-private-node/internal/theme"
 )
 
@@ -204,23 +203,28 @@ func (m Model) viewLightning() string {
         lines = append(lines, "  "+theme.Label.Render("P2P Mode: ")+
             theme.Value.Render(p2pModeLabel(m.cfg.P2PMode)))
 
-        bal, err := lnd.GetBalance(m.cfg.Network)
-        if err == nil && bal.TotalBalance != "" {
-            lines = append(lines, "  "+theme.Label.Render("Balance: ")+
-                theme.Value.Render(bal.TotalBalance+" sats"))
-        }
-
-        info, err := lnd.GetInfo(m.cfg.Network)
-        if err == nil {
-            if info.Channels > 0 {
-                lines = append(lines, "  "+theme.Label.Render("Channels: ")+
-                    theme.Value.Render(fmt.Sprintf("%d", info.Channels)))
+        if m.status != nil && m.status.lndResponding {
+            if m.status.lndBalance != "" {
+                lines = append(lines, "  "+theme.Label.Render("Balance: ")+
+                    theme.Value.Render(m.status.lndBalance+" sats"))
             }
-            if info.Pubkey != "" {
+            if m.status.lndChannels > 0 {
+                lines = append(lines, "  "+theme.Label.Render("Channels: ")+
+                    theme.Value.Render(fmt.Sprintf("%d", m.status.lndChannels)))
+            }
+            if m.status.lndPubkey != "" {
                 lines = append(lines, "")
                 lines = append(lines, "  "+theme.Label.Render("Pubkey:"))
-                lines = append(lines, "  "+theme.Mono.Render(info.Pubkey))
+                lines = append(lines, "  "+theme.Mono.Render(m.status.lndPubkey))
             }
+        } else {
+            lines = append(lines, "")
+            lines = append(lines, "  "+theme.Dim.Render("Waiting for LND..."))
+        }
+
+        if m.cfg.P2PMode == "tor" {
+            lines = append(lines, "")
+            lines = append(lines, "  "+theme.Action.Render("[p] upgrade to clearnet+tor"))
         }
     } else {
         lines = append(lines, "  "+theme.Warning.Render("Wallet not created"))
@@ -230,7 +234,12 @@ func (m Model) viewLightning() string {
     box := theme.Box.Width(bw).Padding(1, 2).Render(content)
     title := theme.Title.Width(bw).Align(lipgloss.Center).
         Render(" ⚡️ Lightning Details ")
-    footer := theme.Footer.Render("  backspace back • q quit  ")
+    var footer string
+    if m.cfg.P2PMode == "tor" {
+        footer = theme.Footer.Render("  p upgrade P2P • backspace back • q quit  ")
+    } else {
+        footer = theme.Footer.Render("  backspace back • q quit  ")
+    }
     full := lipgloss.JoinVertical(lipgloss.Center,
         "", title, "", box, "", footer)
     return lipgloss.Place(m.width, m.height,

@@ -29,14 +29,10 @@ func BuildTorConfig(cfg *config.AppConfig) string {
     }
 
     b.WriteString(fmt.Sprintf(`
-# Bitcoin Core RPC (for wallet connections like Sparrow)
-HiddenServiceDir /var/lib/tor/bitcoin-rpc/
-HiddenServicePort %d 127.0.0.1:%d
-
 # Bitcoin Core P2P (static onion address for peers)
 HiddenServiceDir /var/lib/tor/bitcoin-p2p/
 HiddenServicePort %d 127.0.0.1:%d
-`, net.RPCPort, net.RPCPort, net.P2PPort, net.P2PPort))
+`, net.P2PPort, net.P2PPort))
 
     if cfg.HasLND() {
         b.WriteString(`
@@ -76,7 +72,10 @@ HiddenServicePort 22000 127.0.0.1:22000
 // RebuildTorConfig writes the torrc to disk.
 func RebuildTorConfig(cfg *config.AppConfig) error {
     content := BuildTorConfig(cfg)
-    return system.SudoWriteFile("/etc/tor/torrc", []byte(content), 0644)
+    if err := system.SudoWriteFile("/etc/tor/torrc", []byte(content), 0640); err != nil {
+        return err
+    }
+    return system.SudoRun("chown", "root:debian-tor", "/etc/tor/torrc")
 }
 
 func addUserToTorGroup(username string) error {

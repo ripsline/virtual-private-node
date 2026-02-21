@@ -1,15 +1,15 @@
 ## Virtual Private Node
 
-A one-command installer for a private Bitcoin node on Debian —
-Bitcoin Core and Tor, configured and running in minutes.
+A one-command installer for a private Lightning node on Debian —
+Bitcoin Core, LND, and Tor, configured and running in minutes.
 
-After installation, manage your node with `bitcoin-cli` and
-`systemctl`. No wrappers, no abstractions.
+After installation, manage your node with `bitcoin-cli`, `lncli`,
+and `systemctl`. No wrappers, no abstractions. Your keys, your node.
 
 ### What it installs
 
 - **Tor** — all connections routed through Tor
-- **Bitcoin Core 29.3** — pruned (25 GB default), Tor-routed
+- **Bitcoin Core 29.3** — pruned (25 GB), Tor-routed, wallet disabled
 
 ### Additional software (from Dashboard and Add-ons)
 
@@ -51,9 +51,9 @@ curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/vi
 Every SSH login as`ripsline` opens a dashboard with four tabs:
 
 - **Dashboard** — Services (with logs), System, Bitcoin, and Lightning cards
-- **Pairing** — Zeus and Sparrow wallet connection with QR codes
+- **Pairing** — Zeus wallet connection with QR codes (Tor and clearnet)
 - **Add-ons** — install Lightning Terminal and Syncthing
-- **Settings** — prune size and self-update
+- **Settings** — self-update
 
 Press`q` to drop to a shell:
 
@@ -101,7 +101,7 @@ All software is verified with GPG signatures and SHA256 checksums:
 
 - **Bitcoin Core** — 5 trusted builder keys from
   [bitcoin-core/guix.sigs](https://github.com/bitcoin-core/guix.sigs).
-  Requires 2 of 5 valid signatures.
+  Requires 2 of 5 valid signatures. A bad signature (BADSIG) from any key is a hard stop.
 - **LND** — Roasbeef's signing key verified against known fingerprint.
 - **Lightning Terminal** — ViktorT-11's signing key from Ubuntu keyserver.
 
@@ -116,24 +116,34 @@ sudo cat /var/log/rlvpn-verification.log
 For manual binary verification before installation, see
 [Release Verification](docs/verifying.md).
 
-### Connecting Wallets
+### Connecting Zeus Wallet
 
-#### Zeus (Lightning — LND REST over Tor)
-
+#### Tor only (default)
 1. Install LND from Dashboard, create wallet
 2. Open Pairing tab → Zeus card
 3. In Zeus: Advanced Set-Up → LND (REST)
 4. Enter server address, REST port (8080), and macaroon from Pairing tab
 5. Or scan QR code from Pairing tab
 
-#### Sparrow (On-chain — Bitcoin Core RPC over Tor)
+#### Clearnet + Tor (hybrid mode)
+1. Install LND with hybrid P2P mode, or upgrade from Lightning details
+2. Open Pairing tab → Zeus card
+3. Both clearnet (IP:8080) and Tor connection details are shown
+4. Scan the Clearnet QR
+5. First clearnet connection: accept the certificate warning — the connection is encrypted
 
-1. Open Pairing tab → Sparrow card
-2. In Sparrow: Settings → Server → Bitcoin Core
-3. Enter URL, port, and cookie credentials from Pairing tab
-4. Test Connection
+Note: Clearnet is faster. Tor is more private. Both use the same macaroon.
 
-Note: cookie password changes when Bitcoin Core restarts.
+#### P2P Mode
+
+During LND installation, choose between:
+
+- Tor only — maximum privacy, all connections through Tor
+- Hybrid (Tor + clearnet) — better routing, your server IP is published to the Lightning Network
+
+You can upgrade from Tor-only to hybrid later from the Lightning
+details view. This is a one-way change — once your IP is published
+to the network gossip, it cannot be retracted.
 
 ### Syncthing Channel Backups
 
@@ -147,27 +157,32 @@ For the full setup guide, see
 
 ### Security
 
+- TUI runs as unprivileged user, sudo per-action (not root)
 - All connections through Tor (SOCKS5 port 9050)
 - IPv6 disabled to prevent Tor bypass
 - Stream isolation (separate circuit per connection)
-- UFW firewall: SSH only (+ 9735 for hybrid P2P)
+- UFW firewall: SSH only (+ 9735, 8080 for hybrid P2P)
 - Fail2ban: SSH brute-force protection
 - Root SSH disabled after bootstrap
 - Services run as dedicated bitcoin system user
-- Cookie authentication for Bitcoin Core RPC
 - GPG signature verification for all software
+- Signing key hosted on independent keyserver with pinned fingerprint
+- Bad signature detection — any BADSIG is a hard stop
 - Unattended security upgrades with auto-reboot
 - LND channel backup auto-synced via Syncthing over Tor
+- Bitcoin Core wallet disabled (Lightning-only node)
 
 ### Architecture
 
 ```
-User SSH → ripsline@VPS → rlvpn dashboard
-                             press q → shell with bitcoin-cli, lncli
+User SSH → ripsline@VPS → rlvpn dashboard (non-root)
+                             ↓
+              sudo per-action → systemctl, bitcoin-cli, lncli
+              press q → shell with bitcoin-cli, lncli wrappers
 
 Services (systemd, run as bitcoin user):
   tor.service → SOCKS proxy, hidden services
-  bitcoind.service   → pruned node, Tor-routed
+  bitcoind.service   → pruned node, Tor-routed, wallet disabled
   lnd.service → Lightning (from Dashboard)
   litd.service       → Lightning Terminal (add-on)
   syncthing.service  → channel backup sync (add-on)

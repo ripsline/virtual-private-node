@@ -18,7 +18,7 @@ BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
 BASE_URL="https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}"
-PUBKEY_URL="https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/ripsline-signing-key.asc"
+SIGNING_KEY_FP="AFA0EBACDC9A4C4AA7B0154AC97CE10F170BA5FE"
 
 # ── Parse flags ──────────────────────────────────────────────
 
@@ -43,8 +43,8 @@ if ! grep -q "ID=debian" /etc/os-release 2>/dev/null; then
 fi
 
 DEBIAN_VER=$(grep -oP 'VERSION_ID="\K[0-9]+' /etc/os-release 2>/dev/null || echo "0")
-if [ "$DEBIAN_VER" -lt 12 ]; then
-    echo "ERROR: Debian 12+ required."
+if [ "$DEBIAN_VER" -lt 13 ]; then
+    echo "ERROR: Debian 13+ required."
     exit 1
 fi
 
@@ -73,7 +73,11 @@ if id "$ADMIN_USER" &>/dev/null; then
     echo "  User $ADMIN_USER already exists, skipping."
     PASSWORD="(unchanged)"
 else
-    PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25 || true)
+    PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
+    if [ ${#PASSWORD} -lt 25 ]; then
+        echo "ERROR: Failed to generate secure password."
+        exit 1
+    fi
     adduser --disabled-password --gecos "Virtual Private Node" "$ADMIN_USER"
     echo "$ADMIN_USER:$PASSWORD" | chpasswd
     echo "  ✓ Created user $ADMIN_USER"
@@ -113,7 +117,7 @@ download() {
 
 # ── Pre-seed network config ────────────────────────────────
 
-mkdir -p /etc/rlvpn
+install -d -m 0750 -o $ADMIN_USER -g $ADMIN_USER /etc/rlvpn
 if [ ! -f /etc/rlvpn/config.json ]; then
     cat > /etc/rlvpn/config.json << CFGEOF
 {
@@ -164,15 +168,26 @@ else
     download "${BASE_URL}/SHA256SUMS" "/tmp/SHA256SUMS"
     download "${BASE_URL}/SHA256SUMS.asc" "/tmp/SHA256SUMS.asc"
 
-    echo "  Importing release public key..."
-    download "${PUBKEY_URL}" "/tmp/release.pub.asc"
-    gpg --batch --import /tmp/release.pub.asc >/dev/null 2>&1
+    echo "  Importing release signing key from keyserver..."
+    if ! gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$SIGNING_KEY_FP" >/dev/null 2>&1; then
+        echo "ERROR: Could not import signing key from keyserver."
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc
+        exit 1
+    fi
+
+    echo "  Verifying key fingerprint..."
+    if ! gpg --batch --with-colons --list-keys "$SIGNING_KEY_FP" 2>/dev/null | grep -q "^fpr.*${SIGNING_KEY_FP}"; then
+        echo "ERROR: Key fingerprint mismatch."
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc
+        exit 1
+    fi
+    echo "  ✓ Key fingerprint verified"
 
     echo "  Verifying checksum signature..."
     if ! gpg --batch --verify /tmp/SHA256SUMS.asc /tmp/SHA256SUMS 2>/dev/null; then
         echo "ERROR: GPG signature verification failed."
         echo "  The download may be corrupted or tampered with."
-        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc
         exit 1
     fi
     echo "  ✓ Signature verified"
@@ -181,7 +196,7 @@ else
     cd /tmp
     if ! sha256sum -c SHA256SUMS --ignore-missing 2>/dev/null | grep -q "${TARBALL}: OK"; then
         echo "ERROR: Checksum verification failed."
-        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc
         exit 1
     fi
     echo "  ✓ Checksum verified"
@@ -193,7 +208,7 @@ else
 
     if [ ! -s "/tmp/${BINARY_NAME}" ]; then
         echo "ERROR: Extracted binary not found."
-        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc
         exit 1
     fi
 
@@ -202,7 +217,7 @@ else
 
     # ── Cleanup ─────────────────────────────────────────────────
 
-    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/release.pub.asc /tmp/${BINARY_NAME}
+    rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc /tmp/${BINARY_NAME}
 fi
 
 # ── Auto-launch on ripsline login ───────────────────────────
@@ -222,18 +237,13 @@ echo "  ✓ Configured auto-launch"
 # ── Disable root SSH login ──────────────────────────────────
 
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+if ! grep -q "^PermitRootLogin no" /etc/ssh/sshd_config; then
+    echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+fi
 systemctl restart sshd 2>/dev/null || systemctl restart ssh
 echo "  ✓ Disabled root SSH login"
 
 # ── Print instructions ──────────────────────────────────────
-
-if command -v curl &>/dev/null; then
-    SERVER_IP=$(curl -4 -s --max-time 5 ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
-elif command -v wget &>/dev/null; then
-    SERVER_IP=$(wget -qO- --timeout=5 ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
-else
-    SERVER_IP="YOUR_SERVER_IP"
-fi
 
 echo ""
 echo "  ═══════════════════════════════════════════════════"
@@ -242,7 +252,7 @@ echo "  Bootstrap complete."
 echo ""
 echo "  Open a NEW terminal and connect:"
 echo ""
-echo "    ssh $ADMIN_USER@$SERVER_IP"
+echo "    ssh $ADMIN_USER@<your-server-ip-address>"
 echo "    Password: $PASSWORD"
 echo ""
 echo "  The node installer will start automatically."

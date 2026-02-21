@@ -18,8 +18,6 @@ func (m Model) View() string {
         return m.viewLightning()
     case svZeus:
         return m.viewZeus()
-    case svSparrow:
-        return m.viewSparrow()
     case svSyncthingDetail:
         return m.viewSyncthingDetail()
     case svLITDetail:
@@ -105,16 +103,12 @@ func (m Model) viewFooter() string {
         return theme.Footer.Render(
             "  ←→ select • enter install/view • tab switch • q quit  ")
     case tabSettings:
-        if m.settingsCustom {
-            return theme.Footer.Render(
-                "  type size in GB • enter confirm • backspace cancel  ")
-        }
-        if m.settingsConfirm != "" || m.updateConfirm {
+        if m.updateConfirm {
             return theme.Footer.Render(
                 "  y confirm • any key cancel  ")
         }
         return theme.Footer.Render(
-            "  ←→ card • ↑↓ select • enter change • tab switch • q quit  ")
+            "  enter update • tab switch • q quit  ")
     }
     return ""
 }

@@ -62,26 +62,6 @@ func printMacaroon(cfg *config.AppConfig) {
     fmt.Print("\033[2J\033[H")
 }
 
-func readCookieValue(cfg *config.AppConfig) string {
-    p := "/var/lib/bitcoin/.cookie"
-    if !cfg.IsMainnet() {
-        p = fmt.Sprintf("/var/lib/bitcoin/%s/.cookie", cfg.Network)
-    }
-    data, err := os.ReadFile(p)
-    if err != nil {
-        output, err := system.SudoRunOutput("cat", p)
-        if err != nil {
-            return ""
-        }
-        data = []byte(output)
-    }
-    parts := strings.SplitN(strings.TrimSpace(string(data)), ":", 2)
-    if len(parts) != 2 {
-        return ""
-    }
-    return parts[1]
-}
-
 func getSyncthingVersion() string {
     output, err := system.RunContext(3*time.Second, "syncthing", "--version")
     if err != nil {

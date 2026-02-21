@@ -80,11 +80,17 @@ func RebootRequired() bool {
     return err == nil
 }
 
+// PublicIPv4 returns the server's public IPv4 address.
+// Only called when the user explicitly chooses hybrid (clearnet+tor) P2P mode
+// during LND installation. This makes a clearnet request by design — the user
+// is opting into clearnet exposure by choosing hybrid mode, so the IP is already
+// being published to Lightning Network peers.
 func PublicIPv4() string {
     ip, err := RunContext(5e9, "curl", "-4", "-s", "--max-time", "5", "ifconfig.me")
     if err != nil {
         return ""
     }
+    ip = strings.TrimSpace(ip)
     if len(strings.Split(ip, ".")) != 4 {
         return ""
     }

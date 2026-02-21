@@ -73,9 +73,8 @@ func vlog(format string, args ...interface{}) {
         time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
         fmt.Sprintf(format, args...))
     f, err := os.OpenFile(verifyLogPath,
-        os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+        os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
     if err != nil {
-        // Can't open directly, try via sudo append
         system.SudoRun("bash", "-c",
             fmt.Sprintf("echo -n %q >> %s", entry, verifyLogPath))
         return

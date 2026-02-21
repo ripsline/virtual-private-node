@@ -23,6 +23,17 @@ type WalletBalance struct {
     TotalBalance string
 }
 
+type getInfoResponse struct {
+    IdentityPubkey    string `json:"identity_pubkey"`
+    NumActiveChannels int    `json:"num_active_channels"`
+    SyncedToChain     bool   `json:"synced_to_chain"`
+    SyncedToGraph     bool   `json:"synced_to_graph"`
+}
+
+type walletBalanceResponse struct {
+    TotalBalance string `json:"total_balance"`
+}
+
 func lncliArgs(network string, subcmd ...string) []string {
     args := []string{"-u", svcUser, "lncli",
         "--lnddir=" + lndDir,
@@ -37,24 +48,18 @@ func GetInfo(network string) (*NodeInfo, error) {
     if err != nil {
         return nil, err
     }
-    var raw map[string]interface{}
-    if err := json.Unmarshal([]byte(output), &raw); err != nil {
+
+    var resp getInfoResponse
+    if err := json.Unmarshal([]byte(output), &resp); err != nil {
         return nil, err
     }
-    info := &NodeInfo{}
-    if v, ok := raw["identity_pubkey"].(string); ok {
-        info.Pubkey = v
-    }
-    if v, ok := raw["num_active_channels"].(float64); ok {
-        info.Channels = int(v)
-    }
-    if v, ok := raw["synced_to_chain"].(bool); ok {
-        info.SyncedChain = v
-    }
-    if v, ok := raw["synced_to_graph"].(bool); ok {
-        info.SyncedGraph = v
-    }
-    return info, nil
+
+    return &NodeInfo{
+        Pubkey:      resp.IdentityPubkey,
+        Channels:    resp.NumActiveChannels,
+        SyncedChain: resp.SyncedToChain,
+        SyncedGraph: resp.SyncedToGraph,
+    }, nil
 }
 
 func GetBalance(network string) (*WalletBalance, error) {
@@ -64,15 +69,15 @@ func GetBalance(network string) (*WalletBalance, error) {
     if err != nil {
         return nil, err
     }
-    var raw map[string]interface{}
-    if err := json.Unmarshal([]byte(output), &raw); err != nil {
+
+    var resp walletBalanceResponse
+    if err := json.Unmarshal([]byte(output), &resp); err != nil {
         return nil, err
     }
-    bal := &WalletBalance{}
-    if v, ok := raw["total_balance"].(string); ok {
-        bal.TotalBalance = v
-    }
-    return bal, nil
+
+    return &WalletBalance{
+        TotalBalance: resp.TotalBalance,
+    }, nil
 }
 
 func GetChannelCount(network string) (int, error) {

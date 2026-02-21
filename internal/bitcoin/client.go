@@ -16,6 +16,13 @@ type BlockchainInfo struct {
     Responding bool
 }
 
+type blockchainInfoResponse struct {
+    Blocks               int     `json:"blocks"`
+    Headers              int     `json:"headers"`
+    VerificationProgress float64 `json:"verificationprogress"`
+    InitialBlockDownload bool    `json:"initialblockdownload"`
+}
+
 func GetBlockchainInfo(datadir, conf string) *BlockchainInfo {
     output, err := system.SudoRunContext(5*time.Second,
         "-u", "bitcoin", "bitcoin-cli",
@@ -25,25 +32,18 @@ func GetBlockchainInfo(datadir, conf string) *BlockchainInfo {
         return &BlockchainInfo{Responding: false}
     }
 
-    var raw map[string]interface{}
-    if err := json.Unmarshal([]byte(output), &raw); err != nil {
+    var resp blockchainInfoResponse
+    if err := json.Unmarshal([]byte(output), &resp); err != nil {
         return &BlockchainInfo{Responding: false}
     }
 
-    info := &BlockchainInfo{Responding: true}
-    if v, ok := raw["blocks"].(float64); ok {
-        info.Blocks = int(v)
+    return &BlockchainInfo{
+        Blocks:     resp.Blocks,
+        Headers:    resp.Headers,
+        Progress:   resp.VerificationProgress,
+        Synced:     !resp.InitialBlockDownload,
+        Responding: true,
     }
-    if v, ok := raw["headers"].(float64); ok {
-        info.Headers = int(v)
-    }
-    if v, ok := raw["verificationprogress"].(float64); ok {
-        info.Progress = v
-    }
-    if v, ok := raw["initialblockdownload"].(bool); ok {
-        info.Synced = !v
-    }
-    return info
 }
 
 func FormatProgress(progress float64) string {

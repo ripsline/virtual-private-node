@@ -50,6 +50,7 @@ func BuildBitcoinConfig(cfg *config.AppConfig) string {
     if net.Name == "testnet4" {
         return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
+disablewallet=1
 %s
 prune=%d
 dbcache=512
@@ -71,6 +72,7 @@ zmqpubrawtx=tcp://127.0.0.1:%d
 
     return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
+disablewallet=1
 prune=%d
 dbcache=512
 maxmempool=300

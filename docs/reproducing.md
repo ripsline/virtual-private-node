@@ -100,11 +100,10 @@ wget -q "https://github.com/ripsline/virtual-private-node/releases/download/v${V
 wget -q "https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}/SHA256SUMS.asc"
 ```
 
-Import the release signing key:
+Import the release signing key from the OpenPGP keyserver:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/ripsline-signing-key.asc \
-    | gpg --import
+gpg --keyserver hkps://keys.openpgp.org --recv-keys AFA0EBACDC9A4C4AA7B0154AC97CE10F170BA5FE
 ```
 
 Verify the signature:
