@@ -520,7 +520,7 @@ func RunLITInstall(cfg *config.AppConfig) error {
         {name: "Verifying LIT checksum", fn: func() error { return verifyLIT(litVersion) }},
         {name: "Installing Lightning Terminal", fn: func() error { return extractAndInstallLIT(litVersion) }},
         {name: "Enabling RPC middleware in LND", fn: enableRPCMiddleware},
-        {name: "Restarting LND", fn: func() error { return system.Run("systemctl", "restart", "lnd") }},
+        {name: "Restarting LND", fn: func() error { return system.SudoRun("systemctl", "restart", "lnd") }},
         {name: "Creating LIT directories", fn: createLITDirs},
         {name: "Creating LIT configuration", fn: func() error { return writeLITConfig(cfg, litPassword) }},
         {name: "Creating litd service", fn: func() error { return writeLITDService(systemUser) }},
