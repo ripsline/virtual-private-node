@@ -91,6 +91,12 @@ echo "$ADMIN_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$ADMIN_USER
 chmod 440 /etc/sudoers.d/$ADMIN_USER
 echo "  ✓ Configured passwordless sudo"
 
+# ── Add ripsline to bitcoin group (if exists) ───────────
+if getent group bitcoin >/dev/null 2>&1; then
+    usermod -aG bitcoin $ADMIN_USER
+    echo "  ✓ Added $ADMIN_USER to bitcoin group"
+fi
+
 # ── Copy SSH keys if root has them ──────────────────────────
 
 if [ -f /root/.ssh/authorized_keys ]; then
@@ -123,6 +129,7 @@ install -d -m 0750 -o $ADMIN_USER -g $ADMIN_USER /etc/rlvpn
 if [ ! -f /etc/rlvpn/config.json ]; then
     cat > /etc/rlvpn/config.json << CFGEOF
 {
+  "install_complete": false,
   "network": "${NETWORK}",
   "components": "bitcoin",
   "prune_size": 25,

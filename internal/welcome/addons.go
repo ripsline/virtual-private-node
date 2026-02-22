@@ -10,8 +10,8 @@ import (
 )
 
 func (m Model) viewAddons(bw int) string {
-    halfW := (bw - 4) / 2
-    cardH := theme.BoxHeight / 2
+    halfW := (bw - 2) / 2
+    cardH := theme.BoxHeight
 
     syncCard := m.addonSyncthingCard(halfW, cardH)
     litCard := m.addonLITCard(halfW, cardH)

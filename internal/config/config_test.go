@@ -34,6 +34,12 @@ func TestDefaultValues(t *testing.T) {
     if cfg.SyncthingInstalled {
         t.Error("SyncthingInstalled: expected false")
     }
+    if cfg.InstallComplete {
+        t.Error("InstallComplete: expected false")
+    }
+    if cfg.InstallVersion != "" {
+        t.Error("InstallVersion: expected empty")
+    }
 }
 
 func TestHasLND(t *testing.T) {
@@ -82,6 +88,8 @@ func TestNetworkConfigRouting(t *testing.T) {
 
 func TestJSONRoundTrip(t *testing.T) {
     original := &AppConfig{
+        InstallComplete:    true,
+        InstallVersion:     "0.2.2",
         Network:            "testnet4",
         Components:         "bitcoin+lnd",
         PruneSize:          50,

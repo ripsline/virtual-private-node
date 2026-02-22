@@ -12,6 +12,8 @@ const (
 )
 
 type AppConfig struct {
+    InstallComplete    bool   `json:"install_complete"`
+    InstallVersion     string `json:"install_version,omitempty"`
     Network            string `json:"network"`
     Components         string `json:"components"`
     PruneSize          int    `json:"prune_size"`

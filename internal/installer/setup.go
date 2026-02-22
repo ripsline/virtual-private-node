@@ -30,17 +30,11 @@ func LitVersionStr() string { return litVersion }
 func LndVersionStr() string { return lndVersion }
 
 func NeedsInstall() bool {
-    checks := []string{
-        "/usr/local/bin/bitcoind",
-        "/etc/bitcoin/bitcoin.conf",
-        "/etc/systemd/system/bitcoind.service",
+    cfg, err := config.Load()
+    if err != nil {
+        return true
     }
-    for _, path := range checks {
-        if _, err := os.Stat(path); err != nil {
-            return true
-        }
-    }
-    return false
+    return !cfg.InstallComplete
 }
 
 // ── Install progress TUI ─────────────────────────────────
@@ -271,12 +265,17 @@ func Run() error {
     if err := setupShellEnvironment(cfg); err != nil {
         fmt.Printf("  Warning: shell setup failed: %v\n", err)
     }
+    cfg.InstallComplete = true
+    cfg.InstallVersion = appVersion
     return config.Save(cfg)
 }
 
 func buildSteps(cfg *config.AppConfig, net *config.NetworkConfig) []installStep {
     return []installStep{
         {name: "Creating system user", fn: func() error { return createSystemUser(systemUser) }},
+        {name: "Adding ripsline to bitcoin group", fn: func() error {
+            return system.SudoRun("usermod", "-aG", systemUser, "ripsline")
+        }},
         {name: "Creating directories", fn: func() error { return createBitcoinDirs(systemUser) }},
         {name: "Disabling IPv6", fn: disableIPv6},
         {name: "Configuring firewall", fn: func() error { return configureFirewall(cfg) }},

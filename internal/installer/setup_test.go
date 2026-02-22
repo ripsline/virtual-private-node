@@ -57,32 +57,11 @@ func TestLndVersionStr(t *testing.T) {
     }
 }
 
-func TestNeedsInstallAllMissing(t *testing.T) {
-    // When no files exist, install is needed
-    // This tests the logic — on a dev machine none of these exist
+func TestNeedsInstallNoConfig(t *testing.T) {
+    // No config file exists on dev machine, so install is needed
     result := NeedsInstall()
     if !result {
-        t.Error("NeedsInstall should return true when bitcoind is not installed")
-    }
-}
-
-func TestNeedsInstallChecksMultipleFiles(t *testing.T) {
-    // Verify the function checks for all three files
-    checks := []string{
-        "/usr/local/bin/bitcoind",
-        "/etc/bitcoin/bitcoin.conf",
-        "/etc/systemd/system/bitcoind.service",
-    }
-    for _, path := range checks {
-        _, err := os.Stat(path)
-        if err == nil {
-            // If any of these exist on the dev machine, skip
-            t.Skipf("skipping — %s exists on this machine", path)
-        }
-    }
-    // None exist, so NeedsInstall should be true
-    if !NeedsInstall() {
-        t.Error("NeedsInstall should return true when files are missing")
+        t.Error("NeedsInstall should return true when config is missing")
     }
 }
 
