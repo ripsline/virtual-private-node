@@ -15,7 +15,11 @@ import (
 func readOnion(path string) string {
     data, err := os.ReadFile(path)
     if err != nil {
-        return ""
+        output, err := system.SudoRunOutput("cat", path)
+        if err != nil {
+            return ""
+        }
+        return strings.TrimSpace(output)
     }
     return strings.TrimSpace(string(data))
 }
@@ -29,7 +33,12 @@ func readMacaroonHex(cfg *config.AppConfig) string {
         "/var/lib/lnd/data/chain/bitcoin/%s/admin.macaroon", network)
     data, err := os.ReadFile(path)
     if err != nil {
-        return ""
+        output, err := system.SudoRunContext(3*time.Second,
+            "xxd", "-p", "-c", "9999", path)
+        if err != nil {
+            return ""
+        }
+        return strings.TrimSpace(output)
     }
     return hex.EncodeToString(data)
 }

@@ -40,6 +40,9 @@ func TestDefaultValues(t *testing.T) {
     if cfg.InstallVersion != "" {
         t.Error("InstallVersion: expected empty")
     }
+    if cfg.WalletCreated {
+        t.Error("WalletCreated: expected false")
+    }
 }
 
 func TestHasLND(t *testing.T) {
@@ -96,6 +99,7 @@ func TestJSONRoundTrip(t *testing.T) {
         P2PMode:            "hybrid",
         AutoUnlock:         true,
         LNDInstalled:       true,
+        WalletCreated:      true,
         LITInstalled:       true,
         LITPassword:        "abc123",
         SyncthingInstalled: true,

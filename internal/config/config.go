@@ -20,6 +20,7 @@ type AppConfig struct {
     P2PMode            string `json:"p2p_mode"`
     AutoUnlock         bool   `json:"auto_unlock"`
     LNDInstalled       bool   `json:"lnd_installed"`
+    WalletCreated      bool   `json:"wallet_created"`
     LITInstalled       bool   `json:"lit_installed"`
     LITPassword        string `json:"lit_password,omitempty"`
     SyncthingInstalled bool   `json:"syncthing_installed"`
@@ -87,13 +88,7 @@ func (c *AppConfig) IsMainnet() bool {
 }
 
 func (c *AppConfig) WalletExists() bool {
-    network := c.Network
-    if c.IsMainnet() {
-        network = "mainnet"
-    }
-    path := "/var/lib/lnd/data/chain/bitcoin/" + network + "/wallet.db"
-    _, err := os.Stat(path)
-    return err == nil
+    return c.WalletCreated
 }
 
 func (c *AppConfig) NetworkConfig() *NetworkConfig {

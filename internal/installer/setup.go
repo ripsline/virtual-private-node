@@ -273,9 +273,6 @@ func Run() error {
 func buildSteps(cfg *config.AppConfig, net *config.NetworkConfig) []installStep {
     return []installStep{
         {name: "Creating system user", fn: func() error { return createSystemUser(systemUser) }},
-        {name: "Adding ripsline to bitcoin group", fn: func() error {
-            return system.SudoRun("usermod", "-aG", systemUser, "ripsline")
-        }},
         {name: "Creating directories", fn: func() error { return createBitcoinDirs(systemUser) }},
         {name: "Disabling IPv6", fn: disableIPv6},
         {name: "Configuring firewall", fn: func() error { return configureFirewall(cfg) }},
@@ -368,8 +365,10 @@ func RunWalletCreation(cfg *config.AppConfig) error {
             fmt.Println("  ✓ Auto-unlock configured")
         }
         cfg.AutoUnlock = true
-        config.Save(cfg)
     }
+    cfg.WalletCreated = true
+    config.Save(cfg)
+    fmt.Print("\033[2J\033[H")
     return nil
 }
 
