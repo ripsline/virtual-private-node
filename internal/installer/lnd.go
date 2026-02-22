@@ -227,15 +227,21 @@ func waitForLND() error {
 
 func buildLNDClient() *http.Client {
     tlsConfig := &tls.Config{}
+    // Try direct read first, fall back to sudo
     certData, err := os.ReadFile("/var/lib/lnd/tls.cert")
+    if err != nil {
+        output, sudoErr := system.SudoRunOutput("cat", "/var/lib/lnd/tls.cert")
+        if sudoErr == nil {
+            certData = []byte(output)
+            err = nil
+        }
+    }
     if err == nil {
         pool := x509.NewCertPool()
         if pool.AppendCertsFromPEM(certData) {
             tlsConfig.RootCAs = pool
         }
     }
-    // If cert isn't available yet, the connection will fail and
-    // waitForLND will retry. No InsecureSkipVerify fallback.
     return &http.Client{
         Transport: &http.Transport{TLSClientConfig: tlsConfig},
         Timeout:   5 * time.Second,
