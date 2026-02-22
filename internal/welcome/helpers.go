@@ -34,7 +34,7 @@ func readMacaroonHex(cfg *config.AppConfig) string {
     data, err := os.ReadFile(path)
     if err != nil {
         output, err := system.SudoRunContext(3*time.Second,
-            "xxd", "-p", "-c", "9999", path)
+            "bash", "-c", fmt.Sprintf("cat '%s' | od -A n -t x1 | tr -d ' \\n'", path))
         if err != nil {
             return ""
         }
