@@ -66,9 +66,11 @@ lncli getinfo
 lncli walletbalance
 
 # Services
-sudo systemctl status bitcoind
-sudo systemctl status lnd
-sudo journalctl -u lnd -n 50 --no-pager
+systemctl status bitcoind
+systemctl status tor@default
+systemctl status lnd
+systemctl status litd
+systemctl status syncthing
 ```
 
 ### Build from Source
@@ -107,10 +109,10 @@ All software is verified with GPG signatures and SHA256 checksums:
 
 Verification failure is a hard stop.
 
-After installation, review the verification log:
+After installation, review the log:
 
 ```bash
-sudo cat /var/log/rlvpn-verification.log
+cat /var/log/rlvpn.log
 ```
 
 For manual binary verification before installation, see
@@ -201,7 +203,7 @@ Services (systemd, run as bitcoin user):
 | /var/lib/lnd/ | LND data and wallet |
 | /var/lib/lit/ | Lightning Terminal data |
 | /var/lib/syncthing/lnd-backup/ | Auto-synced channel.backup |
-| /var/log/rlvpn-verification.log | Software verification audit log |
+| /var/log/rlvpn.log | Application log (install, verification, status) |
 
 ## License
 

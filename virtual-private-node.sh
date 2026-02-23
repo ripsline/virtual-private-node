@@ -13,7 +13,7 @@ set -eo pipefail
 #   curl -sL ripsline.com/virtual-private-node.sh | bash -s -- --testnet4
 # ═══════════════════════════════════════════════════════════
 
-VERSION="0.2.2"
+VERSION="0.2.3"
 BINARY_NAME="rlvpn"
 ADMIN_USER="ripsline"
 
@@ -140,6 +140,13 @@ fi
 
 chown $ADMIN_USER:$ADMIN_USER /etc/rlvpn
 chown $ADMIN_USER:$ADMIN_USER /etc/rlvpn/config.json
+
+# ── Create log file ─────────────────────────────────────────
+
+touch /var/log/rlvpn.log
+chown $ADMIN_USER:$ADMIN_USER /var/log/rlvpn.log
+chmod 0640 /var/log/rlvpn.log
+echo "  ✓ Created log file"
 
 # ── Download rlvpn tarball ──────────────────────────────────
 

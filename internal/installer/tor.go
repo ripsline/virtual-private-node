@@ -1,41 +1,46 @@
+// internal/installer/tor.go
+
 package installer
 
 import (
-    "fmt"
-    "strings"
+	"fmt"
+	"strings"
 
-    "github.com/ripsline/virtual-private-node/internal/config"
-    "github.com/ripsline/virtual-private-node/internal/system"
+	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/paths"
+	"github.com/ripsline/virtual-private-node/internal/system"
 )
 
 func installTor() error {
-    return system.SudoRun("apt-get", "install", "-y", "-qq", "tor")
+	return system.SudoRun("apt-get", "install", "-y", "-qq", "tor")
 }
 
 // BuildTorConfig generates the complete torrc content from config state.
 // Pure logic — no side effects.
+// Note: HiddenServiceDir paths are hardcoded strings because they are
+// torrc config content read by Tor, not Go logic paths.
 func BuildTorConfig(cfg *config.AppConfig) string {
-    net := cfg.NetworkConfig()
+	net := cfg.NetworkConfig()
 
-    var b strings.Builder
-    b.WriteString("# Virtual Private Node — Tor Configuration\n")
-    b.WriteString("SOCKSPort 9050\n")
+	var b strings.Builder
+	b.WriteString("# Virtual Private Node — Tor Configuration\n")
+	b.WriteString("SOCKSPort 9050\n")
 
-    if cfg.HasLND() {
-        b.WriteString("\n# Control port for LND P2P onion management\n")
-        b.WriteString("ControlPort 9051\n")
-        b.WriteString("CookieAuthentication 1\n")
-        b.WriteString("CookieAuthFileGroupReadable 1\n")
-    }
+	if cfg.HasLND() {
+		b.WriteString("\n# Control port for LND P2P onion management\n")
+		b.WriteString("ControlPort 9051\n")
+		b.WriteString("CookieAuthentication 1\n")
+		b.WriteString("CookieAuthFileGroupReadable 1\n")
+	}
 
-    b.WriteString(fmt.Sprintf(`
+	b.WriteString(fmt.Sprintf(`
 # Bitcoin Core P2P (static onion address for peers)
 HiddenServiceDir /var/lib/tor/bitcoin-p2p/
 HiddenServicePort %d 127.0.0.1:%d
 `, net.P2PPort, net.P2PPort))
 
-    if cfg.HasLND() {
-        b.WriteString(`
+	if cfg.HasLND() {
+		b.WriteString(`
 # LND gRPC (wallet connections over Tor)
 HiddenServiceDir /var/lib/tor/lnd-grpc/
 HiddenServicePort 10009 127.0.0.1:10009
@@ -44,18 +49,18 @@ HiddenServicePort 10009 127.0.0.1:10009
 HiddenServiceDir /var/lib/tor/lnd-rest/
 HiddenServicePort 8080 127.0.0.1:8080
 `)
-    }
+	}
 
-    if cfg.LITInstalled {
-        b.WriteString(`
+	if cfg.LITInstalled {
+		b.WriteString(`
 # Lightning Terminal web UI (Tor only)
 HiddenServiceDir /var/lib/tor/lnd-lit/
 HiddenServicePort 8443 127.0.0.1:8443
 `)
-    }
+	}
 
-    if cfg.SyncthingInstalled {
-        b.WriteString(`
+	if cfg.SyncthingInstalled {
+		b.WriteString(`
 # Syncthing web UI (Tor only, HTTP)
 HiddenServiceDir /var/lib/tor/syncthing/
 HiddenServicePort 8384 127.0.0.1:8384
@@ -64,27 +69,27 @@ HiddenServicePort 8384 127.0.0.1:8384
 HiddenServiceDir /var/lib/tor/syncthing-sync/
 HiddenServicePort 22000 127.0.0.1:22000
 `)
-    }
+	}
 
-    return b.String()
+	return b.String()
 }
 
 // RebuildTorConfig writes the torrc to disk.
 func RebuildTorConfig(cfg *config.AppConfig) error {
-    content := BuildTorConfig(cfg)
-    if err := system.SudoWriteFile("/etc/tor/torrc", []byte(content), 0640); err != nil {
-        return err
-    }
-    return system.SudoRun("chown", "root:debian-tor", "/etc/tor/torrc")
+	content := BuildTorConfig(cfg)
+	if err := system.SudoWriteFile(paths.Torrc, []byte(content), 0640); err != nil {
+		return err
+	}
+	return system.SudoRun("chown", "root:debian-tor", paths.Torrc)
 }
 
 func addUserToTorGroup(username string) error {
-    return system.SudoRun("usermod", "-aG", "debian-tor", username)
+	return system.SudoRun("usermod", "-aG", "debian-tor", username)
 }
 
 func restartTor() error {
-    if err := system.SudoRun("systemctl", "enable", "tor"); err != nil {
-        return err
-    }
-    return system.SudoRun("systemctl", "restart", "tor")
+	if err := system.SudoRun("systemctl", "enable", "tor"); err != nil {
+		return err
+	}
+	return system.SudoRun("systemctl", "restart", "tor")
 }

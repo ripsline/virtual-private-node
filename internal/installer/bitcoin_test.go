@@ -1,94 +1,96 @@
+//internal/installer/bitcoin_test.go
+
 package installer
 
 import (
-    "strings"
-    "testing"
+	"strings"
+	"testing"
 
-    "github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/config"
 )
 
 func TestBitcoinConfigMainnet(t *testing.T) {
-    cfg := config.Default()
-    content := BuildBitcoinConfig(cfg)
+	cfg := config.Default()
+	content := BuildBitcoinConfig(cfg)
 
-    required := []string{
-        "server=1",
-        "disablewallet=1",
-        "prune=25000",
-        "proxy=127.0.0.1:9050",
-        "rpcport=8332",
-        "zmqpubrawblock=tcp://127.0.0.1:28332",
-        "zmqpubrawtx=tcp://127.0.0.1:28333",
-        "listen=1",
-        "listenonion=1",
-        "dbcache=512",
-        "maxmempool=300",
-        "bind=127.0.0.1",
-        "rpcbind=127.0.0.1",
-        "rpcallowip=127.0.0.1",
-    }
-    for _, req := range required {
-        if !strings.Contains(content, req) {
-            t.Errorf("mainnet config missing %q", req)
-        }
-    }
+	required := []string{
+		"server=1",
+		"disablewallet=1",
+		"prune=25000",
+		"proxy=127.0.0.1:9050",
+		"rpcport=8332",
+		"zmqpubrawblock=tcp://127.0.0.1:28332",
+		"zmqpubrawtx=tcp://127.0.0.1:28333",
+		"listen=1",
+		"listenonion=1",
+		"dbcache=512",
+		"maxmempool=300",
+		"bind=127.0.0.1",
+		"rpcbind=127.0.0.1",
+		"rpcallowip=127.0.0.1",
+	}
+	for _, req := range required {
+		if !strings.Contains(content, req) {
+			t.Errorf("mainnet config missing %q", req)
+		}
+	}
 
-    if strings.Contains(content, "testnet4=1") {
-        t.Error("mainnet config should not contain testnet4 flag")
-    }
+	if strings.Contains(content, "testnet4=1") {
+		t.Error("mainnet config should not contain testnet4 flag")
+	}
 }
 
 func TestBitcoinConfigTestnet4(t *testing.T) {
-    cfg := &config.AppConfig{
-        Network:   "testnet4",
-        PruneSize: 25,
-        P2PMode:   "tor",
-    }
-    content := BuildBitcoinConfig(cfg)
+	cfg := &config.AppConfig{
+		Network:   "testnet4",
+		PruneSize: 25,
+		P2PMode:   "tor",
+	}
+	content := BuildBitcoinConfig(cfg)
 
-    required := []string{
-        "testnet4=1",
-        "prune=25000",
-        "rpcport=48332",
-        "zmqpubrawblock=tcp://127.0.0.1:28334",
-        "zmqpubrawtx=tcp://127.0.0.1:28335",
-        "[testnet4]",
-    }
-    for _, req := range required {
-        if !strings.Contains(content, req) {
-            t.Errorf("testnet4 config missing %q", req)
-        }
-    }
+	required := []string{
+		"testnet4=1",
+		"prune=25000",
+		"rpcport=48332",
+		"zmqpubrawblock=tcp://127.0.0.1:28334",
+		"zmqpubrawtx=tcp://127.0.0.1:28335",
+		"[testnet4]",
+	}
+	for _, req := range required {
+		if !strings.Contains(content, req) {
+			t.Errorf("testnet4 config missing %q", req)
+		}
+	}
 }
 
 func TestBitcoinConfigAlwaysHasProxy(t *testing.T) {
-    cfg := config.Default()
-    content := BuildBitcoinConfig(cfg)
-    if !strings.Contains(content, "proxy=127.0.0.1:9050") {
-        t.Error("bitcoin config must always have Tor proxy")
-    }
+	cfg := config.Default()
+	content := BuildBitcoinConfig(cfg)
+	if !strings.Contains(content, "proxy=127.0.0.1:9050") {
+		t.Error("bitcoin config must always have Tor proxy")
+	}
 }
 
 func TestBitcoinConfigAlwaysHasServer(t *testing.T) {
-    cfg := config.Default()
-    content := BuildBitcoinConfig(cfg)
-    if !strings.Contains(content, "server=1") {
-        t.Error("bitcoin config must always have server=1")
-    }
+	cfg := config.Default()
+	content := BuildBitcoinConfig(cfg)
+	if !strings.Contains(content, "server=1") {
+		t.Error("bitcoin config must always have server=1")
+	}
 }
 
 func TestBitcoinConfigHeader(t *testing.T) {
-    cfg := config.Default()
-    content := BuildBitcoinConfig(cfg)
-    if !strings.Contains(content, "Virtual Private Node") {
-        t.Error("bitcoin config should have VPN header comment")
-    }
+	cfg := config.Default()
+	content := BuildBitcoinConfig(cfg)
+	if !strings.Contains(content, "Virtual Private Node") {
+		t.Error("bitcoin config should have VPN header comment")
+	}
 }
 
 func TestBitcoinConfigWalletDisabled(t *testing.T) {
-    cfg := config.Default()
-    content := BuildBitcoinConfig(cfg)
-    if !strings.Contains(content, "disablewallet=1") {
-        t.Error("bitcoin config must have disablewallet=1")
-    }
+	cfg := config.Default()
+	content := BuildBitcoinConfig(cfg)
+	if !strings.Contains(content, "disablewallet=1") {
+		t.Error("bitcoin config must have disablewallet=1")
+	}
 }

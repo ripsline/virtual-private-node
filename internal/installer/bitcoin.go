@@ -1,54 +1,57 @@
+// internal/installer/bitcoin.go
+
 package installer
 
 import (
-    "fmt"
-    "os"
+	"fmt"
+	"os"
 
-    "github.com/ripsline/virtual-private-node/internal/config"
-    "github.com/ripsline/virtual-private-node/internal/system"
+	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/paths"
+	"github.com/ripsline/virtual-private-node/internal/system"
 )
 
 func downloadBitcoin(version string) error {
-    filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
-    url := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/%s", version, filename)
-    shaURL := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS", version)
-    if err := system.Download(url, "/tmp/"+filename); err != nil {
-        return err
-    }
-    return system.Download(shaURL, "/tmp/SHA256SUMS")
+	filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
+	url := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/%s", version, filename)
+	shaURL := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS", version)
+	if err := system.Download(url, "/tmp/"+filename); err != nil {
+		return err
+	}
+	return system.Download(shaURL, "/tmp/SHA256SUMS")
 }
 
 func extractAndInstallBitcoin(version string) error {
-    filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
-    if err := system.Run("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp"); err != nil {
-        return err
-    }
-    extractDir := fmt.Sprintf("/tmp/bitcoin-%s/bin", version)
-    entries, err := os.ReadDir(extractDir)
-    if err != nil {
-        return fmt.Errorf("read dir: %w", err)
-    }
-    for _, entry := range entries {
-        src := fmt.Sprintf("%s/%s", extractDir, entry.Name())
-        if err := system.SudoRun("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
-            return err
-        }
-    }
-    os.Remove("/tmp/" + filename)
-    os.Remove("/tmp/SHA256SUMS")
-    os.Remove("/tmp/SHA256SUMS.asc")
-    os.RemoveAll(fmt.Sprintf("/tmp/bitcoin-%s", version))
-    return nil
+	filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
+	if err := system.Run("tar", "-xzf", "/tmp/"+filename, "-C", "/tmp"); err != nil {
+		return err
+	}
+	extractDir := fmt.Sprintf("/tmp/bitcoin-%s/bin", version)
+	entries, err := os.ReadDir(extractDir)
+	if err != nil {
+		return fmt.Errorf("read dir: %w", err)
+	}
+	for _, entry := range entries {
+		src := fmt.Sprintf("%s/%s", extractDir, entry.Name())
+		if err := system.SudoRun("install", "-m", "0755", "-o", "root", "-g", "root", src, "/usr/local/bin/"); err != nil {
+			return err
+		}
+	}
+	os.Remove("/tmp/" + filename)
+	os.Remove("/tmp/SHA256SUMS")
+	os.Remove("/tmp/SHA256SUMS.asc")
+	os.RemoveAll(fmt.Sprintf("/tmp/bitcoin-%s", version))
+	return nil
 }
 
 // BuildBitcoinConfig generates bitcoin.conf content from config state.
 // Pure logic — no side effects.
 func BuildBitcoinConfig(cfg *config.AppConfig) string {
-    net := cfg.NetworkConfig()
-    pruneMB := cfg.PruneSize * 1000
+	net := cfg.NetworkConfig()
+	pruneMB := cfg.PruneSize * 1000
 
-    if net.Name == "testnet4" {
-        return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
+	if net.Name == "testnet4" {
+		return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
 disablewallet=1
 %s
@@ -67,10 +70,10 @@ rpcallowip=127.0.0.1
 zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
 `, net.BitcoinFlag, pruneMB,
-            net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
-    }
+			net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
+	}
 
-    return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
+	return fmt.Sprintf(`# Virtual Private Node — Bitcoin Core
 server=1
 disablewallet=1
 prune=%d
@@ -87,19 +90,19 @@ rpcallowip=127.0.0.1
 zmqpubrawblock=tcp://127.0.0.1:%d
 zmqpubrawtx=tcp://127.0.0.1:%d
 `, pruneMB,
-        net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
+		net.RPCPort, net.ZMQBlockPort, net.ZMQTxPort)
 }
 
 func writeBitcoinConfig(cfg *config.AppConfig) error {
-    content := BuildBitcoinConfig(cfg)
-    if err := system.SudoWriteFile("/etc/bitcoin/bitcoin.conf", []byte(content), 0640); err != nil {
-        return err
-    }
-    return system.SudoRun("chown", "root:"+systemUser, "/etc/bitcoin/bitcoin.conf")
+	content := BuildBitcoinConfig(cfg)
+	if err := system.SudoWriteFile(paths.BitcoinConf, []byte(content), 0640); err != nil {
+		return err
+	}
+	return system.SudoRun("chown", "root:"+systemUser, paths.BitcoinConf)
 }
 
 func writeBitcoindService(username string) error {
-    content := fmt.Sprintf(`[Unit]
+	content := fmt.Sprintf(`[Unit]
 Description=Bitcoin Core
 After=network-online.target tor.service
 Wants=network-online.target
@@ -119,15 +122,15 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 `, username, username)
-    return system.SudoWriteFile("/etc/systemd/system/bitcoind.service", []byte(content), 0644)
+	return system.SudoWriteFile(paths.BitcoindService, []byte(content), 0644)
 }
 
 func startBitcoind() error {
-    if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
-        return err
-    }
-    if err := system.SudoRun("systemctl", "enable", "bitcoind"); err != nil {
-        return err
-    }
-    return system.SudoRun("systemctl", "start", "bitcoind")
+	if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+	if err := system.SudoRun("systemctl", "enable", "bitcoind"); err != nil {
+		return err
+	}
+	return system.SudoRun("systemctl", "start", "bitcoind")
 }
