@@ -776,7 +776,7 @@ func readVersionCache() string {
 }
 
 func writeVersionCache(version string) {
-	os.WriteFile(versionCachePath, []byte(version), 0644)
+	os.WriteFile(versionCachePath, []byte(version), 0600)
 }
 
 func GetVersion() string {
