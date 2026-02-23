@@ -39,6 +39,8 @@ type walletBalanceResponse struct {
 func lncliArgs(network string, subcmd ...string) []string {
 	args := []string{"-u", svcUser, "lncli",
 		"--lnddir=" + paths.LNDDataDir,
+		"--macaroonpath=" + paths.LNDMacaroon(network),
+		"--tlscertpath=" + paths.LNDTLSCert,
 		"--network=" + network}
 	return append(args, subcmd...)
 }
