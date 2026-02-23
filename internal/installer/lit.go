@@ -94,11 +94,11 @@ func enableRPCMiddleware() error {
 }
 
 func writeLITConfig(cfg *config.AppConfig, uiPassword string) error {
-	network := cfg.Network
+	macaroonNetwork := cfg.Network
 	if cfg.IsMainnet() {
-		network = "mainnet"
+		macaroonNetwork = "mainnet"
 	}
-	macaroonPath := paths.LNDMacaroon(network)
+	macaroonPath := paths.LNDMacaroon(macaroonNetwork)
 	content := fmt.Sprintf(`# Virtual Private Node — Lightning Terminal
 uipassword=%s
 lnd-mode=remote
