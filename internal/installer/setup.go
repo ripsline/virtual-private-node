@@ -376,9 +376,12 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 		if err := setupAutoUnlock(pw); err != nil {
 			fmt.Printf("  Warning: %v\n", err)
 		} else {
-			fmt.Println("  ✓ Auto-unlock configured")
+			fmt.Println("  ✅ Auto-unlock configured")
 		}
 		cfg.AutoUnlock = true
+	} else {
+		fmt.Println("  ⚠️ Skipping auto-unlock. You will need to unlock LND manually after reboot.")
+		fmt.Println("    Run: lncli unlock")
 	}
 	cfg.WalletCreated = true
 	config.Save(cfg)
@@ -776,11 +779,26 @@ func GetVersion() string {
 // ── Helpers ──────────────────────────────────────────────
 
 func readPassword() string {
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	if err != nil {
-		return ""
+	for attempts := 0; attempts < 3; attempts++ {
+		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			fmt.Printf("\n  Error reading password: %v\n", err)
+			if attempts < 2 {
+				fmt.Print("  Try again: ")
+			}
+			continue
+		}
+		if len(pw) == 0 {
+			fmt.Println("\n  Password cannot be empty.")
+			if attempts < 2 {
+				fmt.Print("  Try again: ")
+			}
+			continue
+		}
+		return string(pw)
 	}
-	return string(pw)
+	fmt.Println("\n  Failed to read password after 3 attempts.")
+	return ""
 }
 
 func readFileOrDefault(path, def string) string {
