@@ -5,6 +5,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"strings"
@@ -79,7 +80,7 @@ func SudoRunSilent(name string, args ...string) error {
 // SudoWriteFile writes content to a system path via sudo.
 // Writes to /tmp first, then sudo copies to the destination.
 func SudoWriteFile(path string, content []byte, perm os.FileMode) error {
-	tmpFile := fmt.Sprintf("/tmp/rlvpn-%d.tmp", os.Getpid())
+	tmpFile := fmt.Sprintf("/tmp/rlvpn-%d-%d.tmp", os.Getpid(), rand.IntN(1000000))
 	if err := os.WriteFile(tmpFile, content, 0600); err != nil {
 		return fmt.Errorf("write temp file: %w", err)
 	}
@@ -102,7 +103,7 @@ func Download(url, dest string) error {
 // Copies to a temp file the current user can read, reads it,
 // then deletes the temp file. Safe for binary files.
 func SudoReadFile(path string) ([]byte, error) {
-	tmp := fmt.Sprintf("/tmp/rlvpn-read-%d.tmp", os.Getpid())
+	tmp := fmt.Sprintf("/tmp/rlvpn-read-%d-%d.tmp", os.Getpid(), rand.IntN(1000000))
 	defer os.Remove(tmp)
 	if err := SudoRun("cp", path, tmp); err != nil {
 		return nil, fmt.Errorf("sudo cp %s: %w", path, err)
