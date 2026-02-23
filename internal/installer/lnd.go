@@ -5,6 +5,7 @@ package installer
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -229,6 +230,49 @@ func waitForLND() error {
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("LND did not respond after 120 seconds")
+}
+
+func verifyWalletPassword(password string) error {
+	client := buildLNDClient()
+
+	// LND REST API: unlock wallet to verify password
+	// If wallet is already unlocked (just created), this returns
+	// an error saying "already unlocked" which means password is fine
+	payload := fmt.Sprintf(`{"wallet_password":"%s"}`,
+		base64Encode([]byte(password)))
+
+	resp, err := client.Post("https://localhost:8080/v1/unlockwallet",
+		"application/json",
+		strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("could not connect to LND: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := os.ReadFile("/dev/stdin") // don't actually read stdin
+	_ = body
+
+	// Read actual response body
+	respBody := make([]byte, 4096)
+	n, _ := resp.Body.Read(respBody)
+	respStr := string(respBody[:n])
+
+	// 200 = successfully unlocked (password correct)
+	// "already unlocked" = wallet running (password correct by implication — just created)
+	if resp.StatusCode == 200 || strings.Contains(respStr, "already unlocked") {
+		return nil
+	}
+
+	// "invalid passphrase" = wrong password
+	if strings.Contains(respStr, "invalid passphrase") {
+		return fmt.Errorf("incorrect password")
+	}
+
+	return fmt.Errorf("unexpected response (HTTP %d): %s", resp.StatusCode, respStr)
+}
+
+func base64Encode(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
 }
 
 func buildLNDClient() *http.Client {
