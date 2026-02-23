@@ -129,6 +129,8 @@ func TestLncliArgsMainnet(t *testing.T) {
 	args := lncliArgs("mainnet", "getinfo")
 	expected := []string{"-u", "bitcoin", "lncli",
 		"--lnddir=" + paths.LNDDataDir,
+		"--macaroonpath=" + paths.LNDMacaroon("mainnet"),
+		"--tlscertpath=" + paths.LNDTLSCert,
 		"--network=mainnet",
 		"getinfo"}
 
