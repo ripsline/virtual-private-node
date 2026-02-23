@@ -136,11 +136,11 @@ func (m installModel) View() string {
 		var ind string
 		switch s.status {
 		case stepDone:
-			sty, ind = theme.ProgDone, "✓"
+			sty, ind = theme.ProgDone, "✅"
 		case stepRunning:
-			sty, ind = theme.ProgRunning, "⟳"
+			sty, ind = theme.ProgRunning, "🔄"
 		case stepFailed:
-			sty, ind = theme.ProgFail, "✗"
+			sty, ind = theme.ProgFail, "❌"
 		default:
 			sty, ind = theme.ProgPending, "○"
 		}
@@ -154,7 +154,7 @@ func (m installModel) View() string {
 	box := theme.ProgBox.Width(bw).Render(strings.Join(lines, "\n"))
 	var footer string
 	if m.done && !m.failed {
-		footer = theme.Success.Render("  ✓ Complete — press Enter to continue  ")
+		footer = theme.Success.Render("  ✅ Complete — press Enter to continue  ")
 	} else if m.failed {
 		footer = theme.ProgFail.Render("  Failed. Press ctrl+c to exit.  ")
 	} else {
@@ -338,7 +338,7 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	if err := waitForLND(); err != nil {
 		return err
 	}
-	fmt.Println("  ✓ LND is ready")
+	fmt.Println("  ✅ LND is ready")
 
 	cmd := exec.Command("sudo", "-u", systemUser, "lncli",
 		"--lnddir=/var/lib/lnd", "--network="+net.LNCLINetwork, "create")
@@ -373,12 +373,19 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	fmt.Println()
 
 	if pw != "" {
-		if err := setupAutoUnlock(pw); err != nil {
-			fmt.Printf("  Warning: %v\n", err)
+		fmt.Println("  Verifying password...")
+		if err := verifyWalletPassword(pw); err != nil {
+			fmt.Printf("  ⚠️ Password verification failed: %v\n", err)
+			fmt.Println("  Skipping auto-unlock. You can configure it later.")
+			fmt.Println("    Run: lncli unlock")
 		} else {
-			fmt.Println("  ✅ Auto-unlock configured")
+			if err := setupAutoUnlock(pw); err != nil {
+				fmt.Printf("  Warning: %v\n", err)
+			} else {
+				fmt.Println("  ✅ Auto-unlock configured")
+			}
+			cfg.AutoUnlock = true
 		}
-		cfg.AutoUnlock = true
 	} else {
 		fmt.Println("  ⚠️ Skipping auto-unlock. You will need to unlock LND manually after reboot.")
 		fmt.Println("    Run: lncli unlock")
