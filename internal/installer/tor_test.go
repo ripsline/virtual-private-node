@@ -171,3 +171,59 @@ func TestTorConfigNoControlPortWithoutLND(t *testing.T) {
 		t.Error("should not have ControlPort without LND")
 	}
 }
+
+func TestTorConfigWithLndHub(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.LndHubInstalled = true
+	content := BuildTorConfig(cfg)
+
+	required := []string{
+		"lndhub",
+		"HiddenServicePort 3000",
+	}
+	for _, req := range required {
+		if !strings.Contains(content, req) {
+			t.Errorf("missing %q in LndHub torrc", req)
+		}
+	}
+}
+
+func TestTorConfigNoLndHubWithoutInstall(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	content := BuildTorConfig(cfg)
+
+	if strings.Contains(content, "lndhub") {
+		t.Error("should not have lndhub without install")
+	}
+}
+
+func TestTorConfigFullStackWithLndHub(t *testing.T) {
+	cfg := &config.AppConfig{
+		Network:            "mainnet",
+		LNDInstalled:       true,
+		LITInstalled:       true,
+		SyncthingInstalled: true,
+		LndHubInstalled:    true,
+	}
+	content := BuildTorConfig(cfg)
+
+	required := []string{
+		"SOCKSPort 9050",
+		"ControlPort 9051",
+		"bitcoin-p2p",
+		"lnd-grpc",
+		"lnd-rest",
+		"lnd-lit",
+		"syncthing",
+		"syncthing-sync",
+		"lndhub",
+		"HiddenServicePort 3000",
+	}
+	for _, req := range required {
+		if !strings.Contains(content, req) {
+			t.Errorf("full stack with lndhub torrc missing %q", req)
+		}
+	}
+}

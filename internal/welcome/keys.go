@@ -61,6 +61,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.subview = svNone
 			case svLITDetail:
 				m.subview = svNone
+			case svLndHubDetail:
+				m.lastAccount = nil
+				m.subview = svNone
 			default:
 				m.subview = svNone
 			}
@@ -82,6 +85,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.subview = svQR
 				return m, nil
 			}
+			if m.subview == svLndHubDetail {
+				m.shellAction = svLndHubCreateAccount
+				return m, tea.Quit
+			}
 		case "p":
 			if m.subview == svLightning && m.cfg.P2PMode == "tor" && m.cfg.HasLND() {
 				m.shellAction = svP2PUpgrade
@@ -100,6 +107,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				litOnion := readOnion(paths.TorLNDLITHostname)
 				if litOnion != "" {
 					m.urlTarget = "https://" + litOnion + ":8443"
+					m.subview = svFullURL
+				}
+				return m, nil
+			}
+			if m.subview == svLndHubDetail {
+				hubOnion := readOnion(paths.TorLndHubHostname)
+				if hubOnion != "" {
+					m.urlTarget = "http://" + hubOnion + ":3000"
 					m.subview = svFullURL
 				}
 				return m, nil
@@ -292,15 +307,18 @@ func (m Model) navDown() Model {
 func (m Model) navLeft() Model {
 	switch m.activeTab {
 	case tabDashboard:
-		if m.dashCard == cardSystem {
+		switch m.dashCard {
+		case cardSystem:
 			m.dashCard = cardServices
-		} else if m.dashCard == cardLightning {
+		case cardLightning:
 			m.dashCard = cardBitcoin
 		}
 	case tabPairing:
 		// Single card, no navigation needed
 	case tabAddons:
-		m.addonFocus = 0
+		if m.addonFocus > 0 {
+			m.addonFocus--
+		}
 	case tabSettings:
 		// Single card, no navigation needed
 	}
@@ -310,15 +328,18 @@ func (m Model) navLeft() Model {
 func (m Model) navRight() Model {
 	switch m.activeTab {
 	case tabDashboard:
-		if m.dashCard == cardServices {
+		switch m.dashCard {
+		case cardServices:
 			m.dashCard = cardSystem
-		} else if m.dashCard == cardBitcoin {
+		case cardBitcoin:
 			m.dashCard = cardLightning
 		}
 	case tabPairing:
 		// Single card, no navigation needed
 	case tabAddons:
-		m.addonFocus = 1
+		if m.addonFocus < 2 {
+			m.addonFocus++
+		}
 	case tabSettings:
 		// Single card, no navigation needed
 	}
@@ -381,6 +402,16 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 		}
 		m.shellAction = svLITInstall
 		return m, tea.Quit
+	case 2: // LndHub
+		if m.cfg.LndHubInstalled {
+			m.subview = svLndHubDetail
+			return m, nil
+		}
+		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+			return m, nil
+		}
+		m.shellAction = svLndHubInstall
+		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -396,6 +427,9 @@ func (m Model) svcCount() int {
 	if m.cfg.SyncthingInstalled {
 		n++
 	}
+	if m.cfg.LndHubInstalled {
+		n++
+	}
 	return n
 }
 
@@ -409,6 +443,9 @@ func (m Model) svcName(i int) string {
 	}
 	if m.cfg.SyncthingInstalled {
 		names = append(names, "syncthing")
+	}
+	if m.cfg.LndHubInstalled {
+		names = append(names, "lndhub")
 	}
 	if i < len(names) {
 		return names[i]

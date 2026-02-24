@@ -30,6 +30,9 @@ type AppConfig struct {
 	LITPassword        string `json:"lit_password,omitempty"`
 	SyncthingInstalled bool   `json:"syncthing_installed"`
 	SyncthingPassword  string `json:"syncthing_password,omitempty"`
+	LndHubInstalled    bool   `json:"lndhub_installed"`
+	LndHubAdminToken   string `json:"lndhub_admin_token,omitempty"`
+	LndHubDBPassword   string `json:"lndhub_db_password,omitempty"`
 }
 
 // Store handles reading/writing config to disk.

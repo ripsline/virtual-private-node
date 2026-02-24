@@ -3,6 +3,7 @@
 package welcome
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -13,13 +14,14 @@ import (
 )
 
 func (m Model) viewAddons(bw int) string {
-	halfW := (bw - 2) / 2
+	thirdW := (bw - 4) / 3
 	cardH := theme.BoxHeight
 
-	syncCard := m.addonSyncthingCard(halfW, cardH)
-	litCard := m.addonLITCard(halfW, cardH)
+	syncCard := m.addonSyncthingCard(thirdW, cardH)
+	litCard := m.addonLITCard(thirdW, cardH)
+	hubCard := m.addonLndHubCard(thirdW, cardH)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, syncCard, "  ", litCard)
+	return lipgloss.JoinHorizontal(lipgloss.Top, syncCard, "  ", litCard, "  ", hubCard)
 }
 
 func (m Model) addonSyncthingCard(w, h int) string {
@@ -163,6 +165,105 @@ func (m Model) viewLITDetail() string {
 	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
 	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ Lightning Terminal Details ")
 	footer := theme.Footer.Render("  u full URL • backspace back • q quit  ")
+	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) addonLndHubCard(w, h int) string {
+	var lines []string
+	lines = append(lines, theme.Lightning.Render("⚡ LndHub"))
+	lines = append(lines, "")
+	lines = append(lines, theme.Dim.Render("Lightning accounts for"))
+	lines = append(lines, theme.Dim.Render("family and friends."))
+	lines = append(lines, "")
+
+	if m.cfg.LndHubInstalled {
+		lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Installed"))
+		lines = append(lines, theme.Label.Render("Version: ")+
+			theme.Value.Render("v"+installer.LndHubVersionStr()))
+		lines = append(lines, "")
+		lines = append(lines, theme.Action.Render("Select for details ▸"))
+	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+		lines = append(lines, theme.Grayed.Render("Requires LND + wallet"))
+	} else {
+		lines = append(lines, theme.RedDot.Render("●")+" "+theme.Dim.Render("Not installed"))
+		lines = append(lines, "")
+		lines = append(lines, theme.Action.Render("Select to install ▸"))
+	}
+
+	border := theme.NormalBorder
+	if m.addonFocus == 2 {
+		if (m.cfg.HasLND() && m.cfg.WalletExists()) || m.cfg.LndHubInstalled {
+			border = theme.SelectedBorder
+		} else {
+			border = theme.GrayedBorder
+		}
+	}
+	return border.Width(w).Padding(1, 2).Render(padLines(lines, h))
+}
+
+func (m Model) viewLndHubDetail() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+	lines = append(lines, theme.Lightning.Render("⚡ LndHub — Lightning Accounts"))
+	lines = append(lines, "")
+
+	hubOnion := readOnion(paths.TorLndHubHostname)
+
+	// Connection info
+	if hubOnion != "" {
+		lines = append(lines, "  "+theme.Label.Render("Tor:"))
+		lines = append(lines, "  "+theme.Mono.Render(hubOnion+":3000"))
+	}
+	if m.cfg.P2PMode == "hybrid" && m.status != nil && m.status.publicIP != "" {
+		lines = append(lines, "  "+theme.Label.Render("Clearnet:"))
+		lines = append(lines, "  "+theme.Mono.Render(m.status.publicIP+":3000"))
+	}
+
+	lines = append(lines, "")
+
+	// Last created account
+	if m.lastAccount != nil {
+		lines = append(lines, "  "+theme.Header.Render("New Account Created"))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Label.Render("Login:    ")+
+			theme.Mono.Render(m.lastAccount.Login))
+		lines = append(lines, "  "+theme.Label.Render("Password: ")+
+			theme.Mono.Render(m.lastAccount.Password))
+		lines = append(lines, "")
+		if hubOnion != "" {
+			connStr := fmt.Sprintf("lndhub://%s:%s@http://%s:3000",
+				m.lastAccount.Login, m.lastAccount.Password, hubOnion)
+			lines = append(lines, "  "+theme.Label.Render("Connection (Tor):"))
+			if len(connStr) > 68 {
+				lines = append(lines, "  "+theme.Mono.Render(connStr[:68]))
+				lines = append(lines, "  "+theme.Mono.Render(connStr[68:]))
+			} else {
+				lines = append(lines, "  "+theme.Mono.Render(connStr))
+			}
+		}
+		if m.cfg.P2PMode == "hybrid" && m.status != nil && m.status.publicIP != "" {
+			connStr := fmt.Sprintf("lndhub://%s:%s@http://%s:3000",
+				m.lastAccount.Login, m.lastAccount.Password, m.status.publicIP)
+			lines = append(lines, "  "+theme.Label.Render("Connection (Clearnet):"))
+			if len(connStr) > 68 {
+				lines = append(lines, "  "+theme.Mono.Render(connStr[:68]))
+				lines = append(lines, "  "+theme.Mono.Render(connStr[68:]))
+			} else {
+				lines = append(lines, "  "+theme.Mono.Render(connStr))
+			}
+		}
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, "  "+theme.Action.Render("[c] create account"))
+	if hubOnion != "" {
+		lines = append(lines, "  "+theme.Action.Render("[u] full Tor URL"))
+	}
+
+	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡ LndHub Details ")
+	footer := theme.Footer.Render("  c create account • u full URL • backspace back • q quit  ")
 	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
 }

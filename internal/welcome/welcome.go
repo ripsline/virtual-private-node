@@ -31,12 +31,15 @@ const (
 	svZeus
 	svSyncthingDetail
 	svLITDetail
+	svLndHubDetail
+	svLndHubCreateAccount
 	svQR
 	svFullURL
 	svWalletCreate
 	svLNDInstall
 	svLITInstall
 	svSyncthingInstall
+	svLndHubInstall
 	svSystemUpdate
 	svLogView
 	svMacaroonShell
@@ -101,6 +104,7 @@ type Model struct {
 	latestVersion string
 	updateConfirm bool
 	fetchInFlight bool
+	lastAccount   *installer.LndHubAccount
 }
 
 func NewModel(cfg *config.AppConfig, version string) Model {
@@ -123,6 +127,12 @@ func Show(cfg *config.AppConfig, version string) {
 		switch final.shellAction {
 		case svMacaroonShell:
 			printMacaroon(cfg)
+			continue
+		case svLndHubInstall:
+			installer.RunLndHubInstall(cfg)
+			if u, e := config.Load(); e == nil {
+				cfg = u
+			}
 			continue
 		case svWalletCreate:
 			installer.RunWalletCreation(cfg)
@@ -164,6 +174,25 @@ func Show(cfg *config.AppConfig, version string) {
 			installer.RunP2PModeUpgrade(cfg)
 			if u, e := config.Load(); e == nil {
 				cfg = u
+			}
+			continue
+		case svLndHubCreateAccount:
+			account, err := installer.CreateLndHubAccount(cfg.LndHubAdminToken)
+			if err != nil {
+				logger.TUI("Warning: failed to create LndHub account: %v", err)
+			}
+			// Store account to display on next TUI launch
+			if account != nil {
+				m := NewModel(cfg, version)
+				m.lastAccount = account
+				m.subview = svLndHubDetail
+				p := tea.NewProgram(m, tea.WithAltScreen())
+				result, _ := p.Run()
+				final = result.(Model)
+				// If they quit from detail, fall through to check shellAction again
+				if final.shellAction != svNone {
+					continue
+				}
 			}
 			continue
 		default:

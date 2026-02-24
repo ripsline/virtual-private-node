@@ -26,6 +26,9 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
 		if cfg.SyncthingInstalled {
 			names = append(names, "syncthing")
 		}
+		if cfg.LndHubInstalled {
+			names = append(names, "lndhub")
+		}
 		for _, name := range names {
 			s.services[name] = system.IsServiceActive(name)
 		}

@@ -103,6 +103,18 @@ const (
 	SyncthingSourceList = "/etc/apt/sources.list.d/syncthing.list"
 )
 
+// ── LndHub ───────────────────────────────────────────────
+
+const (
+	LndHubDir         = "/etc/lndhub"
+	LndHubEnv         = "/etc/lndhub/lndhub.env"
+	LndHubDataDir     = "/var/lib/lndhub"
+	LndHubService     = "/etc/systemd/system/lndhub.service"
+	LndHubMacaroon    = "/var/lib/lnd/lndhub.macaroon"
+	TorLndHub         = "/var/lib/tor/lndhub"
+	TorLndHubHostname = "/var/lib/tor/lndhub/hostname"
+)
+
 // ── User ─────────────────────────────────────────────────
 
 const (

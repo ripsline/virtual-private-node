@@ -607,6 +607,74 @@ func RunSyncthingInstall(cfg *config.AppConfig) error {
 	return config.Save(cfg)
 }
 
+// ── LndHub installation ──────────────────────────────────
+
+func RunLndHubInstall(cfg *config.AppConfig) error {
+	confirmMsg := theme.Header.Render("Install LndHub.go") + "\n\n" +
+		theme.Value.Render("This will:") + "\n\n" +
+		theme.Value.Render("  • Install Go toolchain (for building from source)") + "\n" +
+		theme.Value.Render("  • Install PostgreSQL database") + "\n" +
+		theme.Value.Render("  • Clone and build LndHub.go v"+lndhubVersion) + "\n" +
+		theme.Value.Render("  • Bake restricted LND macaroon") + "\n" +
+		theme.Value.Render("  • Create Tor hidden service") + "\n" +
+		theme.Value.Render("  • Create accounts for family/friends from TUI") + "\n\n" +
+		theme.Dim.Render("Enter to proceed • backspace to cancel")
+	if !ShowConfirmBox(confirmMsg) {
+		return nil
+	}
+
+	// Generate secrets
+	dbPassBytes := make([]byte, 16)
+	if _, err := randRead(dbPassBytes); err != nil {
+		return fmt.Errorf("generate db password: %w", err)
+	}
+	dbPassword := hexEncode(dbPassBytes)
+
+	jwtBytes := make([]byte, 32)
+	if _, err := randRead(jwtBytes); err != nil {
+		return fmt.Errorf("generate jwt secret: %w", err)
+	}
+	jwtSecret := hexEncode(jwtBytes)
+
+	adminBytes := make([]byte, 24)
+	if _, err := randRead(adminBytes); err != nil {
+		return fmt.Errorf("generate admin token: %w", err)
+	}
+	adminToken := hexEncode(adminBytes)
+
+	cfg.LndHubInstalled = true
+
+	steps := []installStep{
+		{name: "Installing Go toolchain", fn: installGoToolchain},
+		{name: "Installing PostgreSQL", fn: installPostgreSQL},
+		{name: "Creating database", fn: func() error { return createLndHubDatabase(dbPassword) }},
+		{name: "Cloning lndhub.go v" + lndhubVersion, fn: cloneLndHub},
+		{name: "Building lndhub (from source)", fn: buildLndHub},
+		{name: "Installing binary", fn: installLndHubBinary},
+		{name: "Baking LND macaroon", fn: func() error { return bakeLndHubMacaroon(cfg) }},
+		{name: "Creating directories", fn: createLndHubDirs},
+		{name: "Writing configuration", fn: func() error {
+			return writeLndHubConfig(cfg, dbPassword, jwtSecret, adminToken)
+		}},
+		{name: "Creating service", fn: writeLndHubService},
+		{name: "Configuring firewall", fn: func() error { return configureFirewall(cfg) }},
+		{name: "Rebuilding Tor config", fn: func() error { return RebuildTorConfig(cfg) }},
+		{name: "Restarting Tor", fn: restartTor},
+		{name: "Starting LndHub", fn: startLndHub},
+	}
+
+	if err := RunInstallTUI(steps, appVersion); err != nil {
+		cfg.LndHubInstalled = false
+		RebuildTorConfig(cfg)
+		restartTor()
+		return err
+	}
+
+	cfg.LndHubAdminToken = adminToken
+	cfg.LndHubDBPassword = dbPassword
+	return config.Save(cfg)
+}
+
 // ── Choice box ───────────────────────────────────────────
 
 type choiceBoxModel struct {

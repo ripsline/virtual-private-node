@@ -107,6 +107,10 @@ func configureFirewall(cfg *config.AppConfig) error {
 		commands = append(commands, []string{"ufw", "allow", "8080/tcp"})
 	}
 
+	if cfg.LndHubInstalled && cfg.P2PMode == "hybrid" {
+		commands = append(commands, []string{"ufw", "allow", "3000/tcp"})
+	}
+
 	commands = append(commands, []string{"ufw", "--force", "enable"})
 
 	for _, args := range commands {

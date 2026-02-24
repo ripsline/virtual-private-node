@@ -27,6 +27,7 @@ func testModelFullStack() Model {
 	cfg.LNDInstalled = true
 	cfg.LITInstalled = true
 	cfg.SyncthingInstalled = true
+	cfg.LndHubInstalled = true
 	return NewModel(cfg, "0.0.0-test")
 }
 
@@ -286,8 +287,8 @@ func TestServiceCountWithLND(t *testing.T) {
 
 func TestServiceCountFullStack(t *testing.T) {
 	m := testModelFullStack()
-	if m.svcCount() != 5 {
-		t.Errorf("full stack service count: got %d, want 5", m.svcCount())
+	if m.svcCount() != 6 {
+		t.Errorf("full stack service count: got %d, want 6", m.svcCount())
 	}
 }
 
@@ -295,7 +296,7 @@ func TestServiceCountFullStack(t *testing.T) {
 
 func TestServiceNames(t *testing.T) {
 	m := testModelFullStack()
-	expected := []string{"tor", "bitcoind", "lnd", "litd", "syncthing"}
+	expected := []string{"tor", "bitcoind", "lnd", "litd", "syncthing", "lndhub"}
 	for i, want := range expected {
 		got := m.svcName(i)
 		if got != want {
@@ -373,5 +374,115 @@ func TestSettingsNoUpdateWhenCurrent(t *testing.T) {
 	m = handleSettingsKey(m, "enter")
 	if m.updateConfirm {
 		t.Error("should not confirm update when already on latest")
+	}
+}
+
+// ── LndHub ───────────────────────────────────────────────
+
+func TestAddonsLndHubRequiresLND(t *testing.T) {
+	m := testModel() // no LND
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 2
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if m.shellAction == svLndHubInstall {
+		t.Error("LndHub install should not trigger without LND")
+	}
+}
+
+func TestAddonsLndHubInstallWithLND(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.WalletCreated = true
+	m := NewModel(cfg, "0.0.0-test")
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 2
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if m.shellAction != svLndHubInstall {
+		t.Errorf("enter on LndHub with LND+wallet: got shellAction %d, want %d",
+			m.shellAction, svLndHubInstall)
+	}
+}
+
+func TestAddonsLndHubDetailWhenInstalled(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.WalletCreated = true
+	cfg.LndHubInstalled = true
+	cfg.LndHubAdminToken = "test-token"
+	m := NewModel(cfg, "0.0.0-test")
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 2
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if m.subview != svLndHubDetail {
+		t.Errorf("enter on installed LndHub: got subview %d, want %d",
+			m.subview, svLndHubDetail)
+	}
+}
+
+func TestAddonNavThreeCards(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 0
+
+	// Right to 1
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = newM.(Model)
+	if m.addonFocus != 1 {
+		t.Errorf("right from 0: got %d, want 1", m.addonFocus)
+	}
+
+	// Right to 2
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = newM.(Model)
+	if m.addonFocus != 2 {
+		t.Errorf("right from 1: got %d, want 2", m.addonFocus)
+	}
+
+	// Right at 2 stays at 2
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = newM.(Model)
+	if m.addonFocus != 2 {
+		t.Errorf("right from 2: got %d, want 2 (clamped)", m.addonFocus)
+	}
+
+	// Left to 1
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	m = newM.(Model)
+	if m.addonFocus != 1 {
+		t.Errorf("left from 2: got %d, want 1", m.addonFocus)
+	}
+
+	// Left to 0
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	m = newM.(Model)
+	if m.addonFocus != 0 {
+		t.Errorf("left from 1: got %d, want 0", m.addonFocus)
+	}
+}
+
+func TestLndHubDetailBackspace(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubDetail
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svNone {
+		t.Errorf("backspace from lndhub detail: got %d, want %d", m.subview, svNone)
 	}
 }

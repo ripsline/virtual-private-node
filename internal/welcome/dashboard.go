@@ -48,6 +48,9 @@ func (m Model) cardServicesView(w, h int) string {
 	if m.cfg.SyncthingInstalled {
 		names = append(names, "syncthing")
 	}
+	if m.cfg.LndHubInstalled {
+		names = append(names, "lndhub")
+	}
 
 	for i, name := range names {
 		dot := theme.RedDot.Render("●")

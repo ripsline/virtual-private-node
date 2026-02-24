@@ -24,6 +24,8 @@ func (m Model) View() string {
 		return m.viewSyncthingDetail()
 	case svLITDetail:
 		return m.viewLITDetail()
+	case svLndHubDetail:
+		return m.viewLndHubDetail()
 	case svQR:
 		return m.viewQR()
 	case svFullURL:
