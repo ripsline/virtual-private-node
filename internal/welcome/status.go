@@ -57,7 +57,7 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
 		s.btcProgress = info.Progress
 		s.btcSynced = info.Synced
 
-		if cfg.HasLND() && cfg.WalletExists() {
+		if cfg.HasLND() {
 			lndInfo, err := lnd.GetInfo(cfg.Network)
 			if err == nil {
 				s.lndResponding = true
@@ -65,10 +65,18 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
 				s.lndChannels = lndInfo.Channels
 				s.lndSyncedChain = lndInfo.SyncedChain
 				s.lndSyncedGraph = lndInfo.SyncedGraph
+
+				// Auto-detect wallet if config is stale
+				if !cfg.WalletExists() && lndInfo.Pubkey != "" {
+					cfg.WalletCreated = true
+					config.Save(cfg)
+				}
 			}
-			bal, err := lnd.GetBalance(cfg.Network)
-			if err == nil && bal.TotalBalance != "" {
-				s.lndBalance = bal.TotalBalance
+			if cfg.WalletExists() {
+				bal, err := lnd.GetBalance(cfg.Network)
+				if err == nil && bal.TotalBalance != "" {
+					s.lndBalance = bal.TotalBalance
+				}
 			}
 		}
 

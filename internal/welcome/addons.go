@@ -59,10 +59,10 @@ func (m Model) addonSyncthingCard(w, h int) string {
 
 func (m Model) addonLITCard(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Lightning.Render("⚡️ Lightning Terminal"))
+	lines = append(lines, theme.Lightning.Render("⚡️ LIT UI"))
 	lines = append(lines, "")
-	lines = append(lines, theme.Dim.Render("Browser UI for channel"))
-	lines = append(lines, theme.Dim.Render("liquidity management."))
+	lines = append(lines, theme.Dim.Render("Lightning Terminal —"))
+	lines = append(lines, theme.Dim.Render("browser channel mgmt."))
 	lines = append(lines, "")
 
 	if m.cfg.LITInstalled {

@@ -269,8 +269,7 @@ func Run() error {
 		cfg = preCfg
 	}
 
-	net := cfg.NetworkConfig()
-	steps := buildSteps(cfg, net)
+	steps := buildSteps(cfg)
 
 	if err := RunInstallTUI(steps, appVersion); err != nil {
 		return err
@@ -284,7 +283,7 @@ func Run() error {
 	return config.Save(cfg)
 }
 
-func buildSteps(cfg *config.AppConfig, net *config.NetworkConfig) []installStep {
+func buildSteps(cfg *config.AppConfig) []installStep {
 	return []installStep{
 		{name: "Creating system user", fn: func() error { return createSystemUser(systemUser) }},
 		{name: "Creating directories", fn: func() error { return createBitcoinDirs(systemUser) }},
@@ -368,25 +367,43 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	fmt.Println("\n  ═══════════════════════════════════════════")
 	fmt.Println("    Auto-Unlock Password")
 	fmt.Println("  ═══════════════════════════════════════════")
-	fmt.Print("  Re-enter your wallet password: ")
-	pw := readPassword()
-	fmt.Println()
+	var matched bool
+	for attempt := 0; attempt < 3; attempt++ {
+		fmt.Print("  Enter your wallet password: ")
+		pw1 := readPassword()
+		fmt.Println()
 
-	if pw != "" {
-		fmt.Println("  Verifying password...")
-		if err := verifyWalletPassword(pw); err != nil {
-			fmt.Printf("  ⚠️ Password verification failed: %v\n", err)
-			fmt.Println("  Skipping auto-unlock. You can configure it later.")
-			fmt.Println("    Run: lncli unlock")
-		} else {
-			if err := setupAutoUnlock(pw); err != nil {
-				fmt.Printf("  Warning: %v\n", err)
-			} else {
-				fmt.Println("  ✅ Auto-unlock configured")
+		if pw1 == "" {
+			fmt.Println("  Password cannot be empty.")
+			if attempt < 2 {
+				fmt.Println("  Try again.")
 			}
-			cfg.AutoUnlock = true
+			continue
 		}
-	} else {
+
+		fmt.Print("  Confirm your wallet password: ")
+		pw2 := readPassword()
+		fmt.Println()
+
+		if pw1 != pw2 {
+			fmt.Println("  ⚠️ Passwords do not match.")
+			if attempt < 2 {
+				fmt.Println("  Try again.")
+			}
+			continue
+		}
+
+		if err := setupAutoUnlock(pw1); err != nil {
+			fmt.Printf("  Warning: %v\n", err)
+		} else {
+			fmt.Println("  ✓ Auto-unlock configured")
+		}
+		cfg.AutoUnlock = true
+		matched = true
+		break
+	}
+
+	if !matched {
 		fmt.Println("  ⚠️ Skipping auto-unlock. You will need to unlock LND manually after reboot.")
 		fmt.Println("    Run: lncli unlock")
 	}
