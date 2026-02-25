@@ -85,7 +85,7 @@ func (m Model) cardServicesView(w, h int) string {
 
 func (m Model) cardSystemView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("🖥️  System"))
+	lines = append(lines, theme.Header.Render("💾 System"))
 	lines = append(lines, "")
 
 	if m.status != nil {
