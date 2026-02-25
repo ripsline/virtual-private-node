@@ -28,8 +28,9 @@ func (m Model) addonSyncthingCard(w, h int) string {
 	var lines []string
 	lines = append(lines, theme.Header.Render("🔄 Syncthing"))
 	lines = append(lines, "")
-	lines = append(lines, theme.Dim.Render("File sync & auto-backup"))
-	lines = append(lines, theme.Dim.Render("LND channel state."))
+	lines = append(lines, theme.Dim.Render("File sync & auto-"))
+	lines = append(lines, theme.Dim.Render("backup LND channel"))
+	lines = append(lines, theme.Dim.Render("state."))
 	lines = append(lines, "")
 
 	if m.cfg.SyncthingInstalled {
@@ -40,7 +41,8 @@ func (m Model) addonSyncthingCard(w, h int) string {
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requires LND + wallet"))
+		lines = append(lines, theme.Grayed.Render("Requirements: "))
+		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+theme.Dim.Render("Not installed"))
 		lines = append(lines, "")
@@ -63,7 +65,8 @@ func (m Model) addonLITCard(w, h int) string {
 	lines = append(lines, theme.Lightning.Render("⚡️ LIT UI"))
 	lines = append(lines, "")
 	lines = append(lines, theme.Dim.Render("Lightning Terminal —"))
-	lines = append(lines, theme.Dim.Render("browser channel mgmt."))
+	lines = append(lines, theme.Dim.Render("browser channel"))
+	lines = append(lines, theme.Dim.Render("management."))
 	lines = append(lines, "")
 
 	if m.cfg.LITInstalled {
@@ -74,7 +77,8 @@ func (m Model) addonLITCard(w, h int) string {
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requires LND + wallet"))
+		lines = append(lines, theme.Grayed.Render("Requirements: "))
+		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+theme.Dim.Render("Not installed"))
 		lines = append(lines, "")
@@ -117,7 +121,8 @@ func (m Model) addonLndHubCard(w, h int) string {
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select to manage ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requires LND + wallet"))
+		lines = append(lines, theme.Grayed.Render("Requirement: "))
+		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+theme.Dim.Render("Not installed"))
 		lines = append(lines, "")
