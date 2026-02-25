@@ -5,9 +5,12 @@ package welcome
 import (
 	"fmt"
 	"os/exec"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/logger"
 	"github.com/ripsline/virtual-private-node/internal/paths"
 	"github.com/ripsline/virtual-private-node/internal/system"
 )
@@ -27,6 +30,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case latestVersionMsg:
 		m.latestVersion = string(msg)
+		return m, nil
+	case lndhubAccountCreatedMsg:
+		if msg.err != nil {
+			logger.TUI("Warning: failed to create LndHub account: %v", msg.err)
+			m.subview = svLndHubManage
+			return m, nil
+		}
+		if msg.account != nil {
+			m.lastAccount = msg.account
+			m.cfg.LndHubAccounts = append(m.cfg.LndHubAccounts, config.LndHubAccount{
+				Label:     m.hubNameInput,
+				Login:     msg.account.Login,
+				CreatedAt: time.Now().Format("2006-01-02"),
+				Active:    true,
+			})
+			config.Save(m.cfg)
+			m.subview = svLndHubCreateAccount
+		}
+		return m, nil
+	case lndhubDeactivatedMsg:
+		if m.hubCursor < len(m.cfg.LndHubAccounts) {
+			acct := &m.cfg.LndHubAccounts[m.hubCursor]
+			if msg.err != nil {
+				logger.TUI("Warning: deactivate failed: %v", msg.err)
+			} else {
+				acct.Active = false
+				acct.DeactivatedAt = time.Now().Format("2006-01-02")
+				acct.BalanceOnDeactivate = msg.balance
+				config.Save(m.cfg)
+				logger.TUI("Deactivated account %s (balance: %s sats)", acct.Label, msg.balance)
+			}
+		}
+		m.subview = svLndHubManage
 		return m, nil
 	case tickMsg:
 		if m.fetchInFlight {
@@ -60,8 +96,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "enter":
 				if m.hubNameInput != "" {
-					m.shellAction = svLndHubCreateAccount
-					return m, tea.Quit
+					return m, createLndHubAccountCmd(m.cfg.LndHubAdminToken)
 				}
 				return m, nil
 			default:
@@ -78,15 +113,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "backspace":
 			switch m.subview {
 			case svQR:
-				m.subview = svZeus
+				if m.qrLabel != "" {
+					// Came from LndHub new account
+					m.subview = svLndHubCreateAccount
+				} else {
+					m.subview = svZeus
+				}
+				m.qrLabel = ""
 			case svFullURL:
 				m.subview = svNone
 			case svSyncthingDetail:
 				m.subview = svNone
 			case svLITDetail:
 				m.subview = svNone
-			case svLndHubDetail, svLndHubManage:
+			case svLndHubManage:
 				m.subview = svNone
+			case svLndHubCreateName:
+				m.hubNameInput = ""
+				m.subview = svLndHubManage
 			case svLndHubCreateAccount:
 				m.lastAccount = nil
 				m.hubNameInput = ""
@@ -107,6 +151,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "r":
 			if m.subview == svZeus {
 				m.qrMode = "tor"
+				m.qrLabel = ""
 				m.subview = svQR
 				return m, nil
 			}
@@ -115,7 +160,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if hubOnion != "" {
 					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@http://%s:3000",
 						m.lastAccount.Login, m.lastAccount.Password, hubOnion)
-					m.qrMode = "tor"
+					m.qrLabel = m.hubNameInput + " — Tor"
 					m.subview = svQR
 				}
 				return m, nil
@@ -123,10 +168,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "c":
 			if m.subview == svZeus && m.cfg.P2PMode == "hybrid" {
 				m.qrMode = "clearnet"
+				m.qrLabel = ""
 				m.subview = svQR
 				return m, nil
 			}
-			if m.subview == svLndHubManage || m.subview == svLndHubDetail {
+			if m.subview == svLndHubManage {
 				m.hubNameInput = ""
 				m.subview = svLndHubCreateName
 				return m, nil
@@ -139,7 +185,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if ip != "" {
 					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@http://%s:3000",
 						m.lastAccount.Login, m.lastAccount.Password, ip)
-					m.qrMode = "clearnet"
+					m.qrLabel = m.hubNameInput + " — Clearnet"
 					m.subview = svQR
 				}
 				return m, nil
@@ -166,7 +212,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			if m.subview == svLndHubDetail || m.subview == svLndHubManage {
+			if m.subview == svLndHubManage {
 				hubOnion := readOnion(paths.TorLndHubHostname)
 				if hubOnion != "" {
 					m.urlTarget = "http://" + hubOnion + ":3000"
@@ -183,8 +229,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "y":
 			if m.subview == svLndHubDeactivateConfirm {
-				m.shellAction = svLndHubDeactivateConfirm
-				return m, tea.Quit
+				if m.hubCursor < len(m.cfg.LndHubAccounts) {
+					login := m.cfg.LndHubAccounts[m.hubCursor].Login
+					return m, deactivateLndHubAccountCmd(login)
+				}
+				return m, nil
 			}
 		case "n":
 			if m.subview == svLndHubDeactivateConfirm {

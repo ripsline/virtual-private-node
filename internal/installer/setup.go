@@ -142,7 +142,7 @@ func (m installModel) View() string {
 		case stepFailed:
 			sty, ind = theme.ProgFail, "❌"
 		default:
-			sty, ind = theme.ProgPending, "○"
+			sty, ind = theme.ProgPending, "⏳"
 		}
 		lines = append(lines, sty.Render(fmt.Sprintf("  %s [%d/%d] %s",
 			ind, i+1, len(m.steps), s.name)))

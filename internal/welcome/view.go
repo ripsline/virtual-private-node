@@ -24,7 +24,7 @@ func (m Model) View() string {
 		return m.viewSyncthingDetail()
 	case svLITDetail:
 		return m.viewLITDetail()
-	case svLndHubDetail, svLndHubManage:
+	case svLndHubManage:
 		return m.viewLndHubManage()
 	case svLndHubCreateName:
 		return m.viewLndHubCreateName()

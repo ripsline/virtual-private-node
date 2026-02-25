@@ -70,7 +70,7 @@ func (m Model) viewZeus() string {
 	restOnion := readOnion(paths.TorLNDRESTHostname)
 
 	if m.cfg.P2PMode == "hybrid" {
-		lines = append(lines, theme.Header.Render("  Clearnet Connection"))
+		lines = append(lines, theme.Header.Render("  🛜 Clearnet Connection"))
 		lines = append(lines, "")
 		if m.status != nil && m.status.publicIP != "" {
 			lines = append(lines, "  "+theme.Label.Render("Server: ")+
@@ -83,7 +83,7 @@ func (m Model) viewZeus() string {
 			lines = append(lines, "  "+theme.Dim.Render("Public IP not available"))
 		}
 		lines = append(lines, "")
-		lines = append(lines, theme.Header.Render("  Tor Connection"))
+		lines = append(lines, theme.Header.Render("  🧅 Tor Connection"))
 		lines = append(lines, "")
 	}
 
@@ -136,23 +136,30 @@ func (m Model) viewZeus() string {
 }
 
 func (m Model) viewQR() string {
-	restOnion := readOnion(paths.TorLNDRESTHostname)
-	mac := readMacaroonHex(m.cfg)
-
 	var uri string
 	var label string
 
-	if m.qrMode == "clearnet" && m.status != nil && m.status.publicIP != "" {
-		uri = fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
-			m.status.publicIP, hexToBase64URL(mac))
-		label = "Clearnet QR — " + m.status.publicIP + ":8080"
-	} else if restOnion != "" && mac != "" {
-		uri = fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
-			restOnion, hexToBase64URL(mac))
-		label = "Tor QR — " + restOnion[:20] + "..."
+	if m.qrLabel != "" {
+		// LndHub or other custom QR
+		uri = m.urlTarget
+		label = m.qrLabel
 	} else {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			theme.Warn.Render("QR not available."))
+		// Zeus QR (original behavior)
+		restOnion := readOnion(paths.TorLNDRESTHostname)
+		mac := readMacaroonHex(m.cfg)
+
+		if m.qrMode == "clearnet" && m.status != nil && m.status.publicIP != "" {
+			uri = fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
+				m.status.publicIP, hexToBase64URL(mac))
+			label = "Clearnet QR — " + m.status.publicIP + ":8080"
+		} else if restOnion != "" && mac != "" {
+			uri = fmt.Sprintf("lndconnect://%s:8080?macaroon=%s",
+				restOnion, hexToBase64URL(mac))
+			label = "Tor QR — " + restOnion[:20] + "..."
+		} else {
+			return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+				theme.Warn.Render("QR not available."))
+		}
 	}
 
 	qr := renderQRCode(uri)

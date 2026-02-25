@@ -31,10 +31,9 @@ const (
 	svZeus
 	svSyncthingDetail
 	svLITDetail
-	svLndHubDetail
 	svLndHubManage
-	svLndHubCreateAccount
 	svLndHubCreateName
+	svLndHubCreateAccount
 	svLndHubAccountDetail
 	svLndHubDeactivateConfirm
 	svQR
@@ -65,6 +64,16 @@ const (
 type svcActionDoneMsg struct{}
 type tickMsg time.Time
 type latestVersionMsg string
+
+type lndhubAccountCreatedMsg struct {
+	account *installer.LndHubAccount
+	err     error
+}
+
+type lndhubDeactivatedMsg struct {
+	balance string
+	err     error
+}
 
 type statusMsg struct {
 	services                     map[string]bool
@@ -100,6 +109,7 @@ type Model struct {
 	addonFocus           int
 	urlTarget            string
 	qrMode               string
+	qrLabel              string
 	width                int
 	height               int
 	shellAction          wSubview
@@ -183,50 +193,6 @@ func Show(cfg *config.AppConfig, version string) {
 				cfg = u
 			}
 			continue
-		case svLndHubCreateAccount:
-			if final.hubNameInput == "" {
-				continue
-			}
-			account, err := installer.CreateLndHubAccount(cfg.LndHubAdminToken)
-			if err != nil {
-				logger.TUI("Warning: failed to create LndHub account: %v", err)
-				continue
-			}
-			if account != nil {
-				cfg.LndHubAccounts = append(cfg.LndHubAccounts, config.LndHubAccount{
-					Label:     final.hubNameInput,
-					Login:     account.Login,
-					CreatedAt: time.Now().Format("2006-01-02"),
-					Active:    true,
-				})
-				config.Save(cfg)
-
-				// Show credentials one time
-				m := NewModel(cfg, version)
-				m.lastAccount = account
-				m.hubNameInput = final.hubNameInput
-				m.subview = svLndHubCreateAccount
-				p := tea.NewProgram(m, tea.WithAltScreen())
-				p.Run()
-			}
-			continue
-		case svLndHubDeactivateConfirm:
-			if final.hubCursor < len(cfg.LndHubAccounts) {
-				acct := &cfg.LndHubAccounts[final.hubCursor]
-				if acct.Active {
-					balance, _ := installer.GetUserBalance(acct.Login)
-					if err := installer.DeactivateUser(acct.Login); err != nil {
-						logger.TUI("Warning: deactivate failed: %v", err)
-					} else {
-						acct.Active = false
-						acct.DeactivatedAt = time.Now().Format("2006-01-02")
-						acct.BalanceOnDeactivate = balance
-						config.Save(cfg)
-						logger.TUI("Deactivated account %s (balance: %s sats)", acct.Label, balance)
-					}
-				}
-			}
-			continue
 		default:
 			return
 		}
@@ -251,5 +217,20 @@ func fetchLatestVersion() tea.Cmd {
 	return func() tea.Msg {
 		v := installer.CheckLatestVersion()
 		return latestVersionMsg(v)
+	}
+}
+
+func createLndHubAccountCmd(adminToken string) tea.Cmd {
+	return func() tea.Msg {
+		account, err := installer.CreateLndHubAccount(adminToken)
+		return lndhubAccountCreatedMsg{account: account, err: err}
+	}
+}
+
+func deactivateLndHubAccountCmd(login string) tea.Cmd {
+	return func() tea.Msg {
+		balance, _ := installer.GetUserBalance(login)
+		err := installer.DeactivateUser(login)
+		return lndhubDeactivatedMsg{balance: balance, err: err}
 	}
 }
