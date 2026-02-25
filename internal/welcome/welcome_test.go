@@ -3,6 +3,8 @@
 package welcome
 
 import (
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,6 +31,23 @@ func testModelFullStack() Model {
 	cfg.SyncthingInstalled = true
 	cfg.LndHubInstalled = true
 	return NewModel(cfg, "0.0.0-test")
+}
+
+// testStore creates an isolated config store in a temp directory.
+func testStore(t *testing.T) *config.Store {
+	t.Helper()
+	dir := t.TempDir()
+	return &config.Store{
+		Dir:  dir,
+		Path: filepath.Join(dir, "config.json"),
+	}
+}
+
+// testModelWithStore creates a model with an isolated config store.
+func testModelWithStore(t *testing.T, cfg *config.AppConfig) Model {
+	t.Helper()
+	store := testStore(t)
+	return NewTestModel(cfg, "0.0.0-test", store)
 }
 
 // ── Tab Navigation ───────────────────────────────────────
@@ -234,7 +253,7 @@ func TestQRBackspaceGoesToZeus(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.subview = svQR
-	m.qrLabel = "" // Zeus QR (no label)
+	m.qrLabel = ""
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m = newM.(Model)
@@ -248,7 +267,7 @@ func TestQRBackspaceGoesToLndHubNewAccount(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.subview = svQR
-	m.qrLabel = "Alice — Tor" // LndHub QR
+	m.qrLabel = "Alice — Tor"
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m = newM.(Model)
@@ -515,7 +534,7 @@ func TestLndHubCreateNameBackspaceWithText(t *testing.T) {
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m = newM.(Model)
 	if m.subview != svLndHubCreateName {
-		t.Errorf("backspace with text should stay on name screen")
+		t.Error("backspace with text should stay on name screen")
 	}
 	if m.hubNameInput != "Al" {
 		t.Errorf("hubNameInput: got %q, want Al", m.hubNameInput)
@@ -526,7 +545,7 @@ func TestLndHubAccountCreatedMsg(t *testing.T) {
 	cfg := config.Default()
 	cfg.LndHubInstalled = true
 	cfg.LndHubAdminToken = "test"
-	m := NewModel(cfg, "0.0.0-test")
+	m := testModelWithStore(t, cfg)
 	m.width = 80
 	m.height = 24
 	m.subview = svLndHubCreateName
@@ -560,7 +579,7 @@ func TestLndHubDeactivatedMsg(t *testing.T) {
 	cfg.LndHubAccounts = []config.LndHubAccount{
 		{Label: "Alice", Login: "abc", CreatedAt: "2026-02-23", Active: true},
 	}
-	m := NewModel(cfg, "0.0.0-test")
+	m := testModelWithStore(t, cfg)
 	m.width = 80
 	m.height = 24
 	m.subview = svLndHubDeactivateConfirm
@@ -579,5 +598,26 @@ func TestLndHubDeactivatedMsg(t *testing.T) {
 	if m.cfg.LndHubAccounts[0].BalanceOnDeactivate != "5000" {
 		t.Errorf("balance: got %q, want 5000",
 			m.cfg.LndHubAccounts[0].BalanceOnDeactivate)
+	}
+}
+
+func TestLndHubAccountCreatedMsgError(t *testing.T) {
+	cfg := config.Default()
+	cfg.LndHubInstalled = true
+	m := testModelWithStore(t, cfg)
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubCreateName
+	m.hubNameInput = "Bob"
+
+	newM, _ := m.Update(lndhubAccountCreatedMsg{account: nil, err: fmt.Errorf("connection refused")})
+	m = newM.(Model)
+
+	if m.subview != svLndHubManage {
+		t.Errorf("after error: got subview %d, want %d (manage)",
+			m.subview, svLndHubManage)
+	}
+	if len(m.cfg.LndHubAccounts) != 0 {
+		t.Error("should not have added account on error")
 	}
 }

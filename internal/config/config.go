@@ -100,6 +100,15 @@ func Save(cfg *AppConfig) error {
 	return DefaultStore().Save(cfg)
 }
 
+// SaveTo saves config using a specific store.
+// Used by the TUI to support injectable stores for testing.
+func SaveTo(store *Store, cfg *AppConfig) error {
+	if store == nil {
+		return Save(cfg)
+	}
+	return store.Save(cfg)
+}
+
 func (c *AppConfig) HasLND() bool {
 	return c.LNDInstalled
 }

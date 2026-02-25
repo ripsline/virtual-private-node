@@ -97,6 +97,7 @@ type statusMsg struct {
 
 type Model struct {
 	cfg                  *config.AppConfig
+	cfgStore             *config.Store // nil = use default store
 	version              string
 	activeTab            wTab
 	subview              wSubview
@@ -131,6 +132,18 @@ func NewModel(cfg *config.AppConfig, version string) Model {
 		dashCard:      cardServices,
 		fetchInFlight: true,
 	}
+}
+
+// NewTestModel creates a model with an isolated config store for testing.
+func NewTestModel(cfg *config.AppConfig, version string, store *config.Store) Model {
+	m := NewModel(cfg, version)
+	m.cfgStore = store
+	return m
+}
+
+// saveCfg saves config using the model's store (injectable for tests).
+func (m Model) saveCfg() {
+	config.SaveTo(m.cfgStore, m.cfg)
 }
 
 // Show launches the welcome TUI. Re-launches after shell actions.

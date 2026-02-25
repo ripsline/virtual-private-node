@@ -45,7 +45,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				CreatedAt: time.Now().Format("2006-01-02"),
 				Active:    true,
 			})
-			config.Save(m.cfg)
+			m.saveCfg()
 			m.subview = svLndHubCreateAccount
 		}
 		return m, nil
@@ -58,7 +58,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				acct.Active = false
 				acct.DeactivatedAt = time.Now().Format("2006-01-02")
 				acct.BalanceOnDeactivate = msg.balance
-				config.Save(m.cfg)
+				m.saveCfg()
 				logger.TUI("Deactivated account %s (balance: %s sats)", acct.Label, msg.balance)
 			}
 		}
@@ -114,7 +114,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch m.subview {
 			case svQR:
 				if m.qrLabel != "" {
-					// Came from LndHub new account
 					m.subview = svLndHubCreateAccount
 				} else {
 					m.subview = svZeus
