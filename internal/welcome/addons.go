@@ -111,7 +111,9 @@ func (m Model) addonLndHubCard(w, h int) string {
 		lines = append(lines, "")
 		lines = append(lines, theme.Label.Render("Version:"))
 		lines = append(lines, theme.Value.Render("v"+installer.LndHubVersionStr()))
-		lines = append(lines, theme.Label.Render(fmt.Sprintf("Accounts: %d active", activeCount)))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Accounts:"))
+		lines = append(lines, theme.Value.Render(fmt.Sprintf("%d active", activeCount)))
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select to manage ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
@@ -144,8 +146,7 @@ func (m Model) viewSyncthingDetail() string {
 		lines = append(lines, theme.Warn.Render("Tor address not available yet."))
 	} else {
 		fullURL := "http://" + syncOnion + ":8384"
-		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		lines = append(lines, "  "+theme.Mono.Render(fullURL))
+		lines = append(lines, "  "+theme.Label.Render("URL: ")+theme.Mono.Render(fullURL))
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Label.Render("User: ")+theme.Mono.Render("admin"))
 		if m.cfg.SyncthingPassword != "" {
@@ -179,8 +180,7 @@ func (m Model) viewLITDetail() string {
 		lines = append(lines, theme.Warn.Render("Tor address not available yet."))
 	} else {
 		fullURL := "https://" + litOnion + ":8443"
-		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		lines = append(lines, "  "+theme.Mono.Render(fullURL))
+		lines = append(lines, "  "+theme.Label.Render("URL: ")+theme.Mono.Render(fullURL))
 		lines = append(lines, "")
 		if m.cfg.LITPassword != "" {
 			lines = append(lines, "  "+theme.Label.Render("Password: ")+theme.Mono.Render(m.cfg.LITPassword))
@@ -209,18 +209,7 @@ func (m Model) viewLITDetail() string {
 func (m Model) viewLndHubManage() string {
 	bw := min(m.width-4, theme.ContentWidth)
 	var lines []string
-	lines = append(lines, theme.Lightning.Render("⚡ LndHub — Account Management"))
-	lines = append(lines, "")
-
-	hubOnion := readOnion(paths.TorLndHubHostname)
-	if hubOnion != "" {
-		lines = append(lines, "  "+theme.Label.Render("Tor: ")+
-			theme.Mono.Render(hubOnion+":3000"))
-	}
-	if m.cfg.P2PMode == "hybrid" && m.status != nil && m.status.publicIP != "" {
-		lines = append(lines, "  "+theme.Label.Render("Clearnet: ")+
-			theme.Mono.Render(m.status.publicIP+":3000"))
-	}
+	lines = append(lines, theme.Lightning.Render("⚡️ LndHub — Account Management"))
 	lines = append(lines, "")
 
 	accounts := m.cfg.LndHubAccounts
@@ -307,6 +296,16 @@ func (m Model) viewLndHubNewAccount() string {
 	lines = append(lines, "")
 
 	if m.lastAccount != nil {
+		hubOnion := readOnion(paths.TorLndHubHostname)
+		if hubOnion != "" {
+			lines = append(lines, "  "+theme.Label.Render("Tor: ")+
+				theme.Mono.Render(hubOnion+":3000"))
+		}
+		if m.cfg.P2PMode == "hybrid" && m.status != nil && m.status.publicIP != "" {
+			lines = append(lines, "  "+theme.Label.Render("Clearnet: ")+
+				theme.Mono.Render(m.status.publicIP+":3000"))
+		}
+		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Label.Render("Login:    ")+
 			theme.Mono.Render(m.lastAccount.Login))
 		lines = append(lines, "  "+theme.Label.Render("Password: ")+
@@ -316,7 +315,6 @@ func (m Model) viewLndHubNewAccount() string {
 		lines = append(lines, "  "+theme.Warning.Render("They will not be shown again."))
 		lines = append(lines, "")
 
-		hubOnion := readOnion(paths.TorLndHubHostname)
 		if hubOnion != "" {
 			lines = append(lines, "  "+theme.Action.Render("[r] QR code (Tor)"))
 		}
