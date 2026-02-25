@@ -564,6 +564,12 @@ func RunLITInstall(cfg *config.AppConfig) error {
 		{name: "Installing Lightning Terminal", fn: func() error { return extractAndInstallLIT(litVersion) }},
 		{name: "Enabling RPC middleware in LND", fn: enableRPCMiddleware},
 		{name: "Restarting LND", fn: func() error { return system.SudoRun("systemctl", "restart", "lnd") }},
+		{name: "Restarting LndHub", fn: func() error {
+			if cfg.LndHubInstalled {
+				return system.SudoRun("systemctl", "restart", "lndhub")
+			}
+			return nil
+		}},
 		{name: "Creating LIT directories", fn: createLITDirs},
 		{name: "Creating LIT configuration", fn: func() error { return writeLITConfig(cfg, litPassword) }},
 		{name: "Creating litd service", fn: func() error { return writeLITDService(systemUser) }},

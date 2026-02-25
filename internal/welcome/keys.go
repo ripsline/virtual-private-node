@@ -120,7 +120,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.qrLabel = ""
 			case svFullURL:
-				m.subview = svNone
+				if m.urlReturnTo != svNone {
+					m.subview = m.urlReturnTo
+					m.urlReturnTo = svNone
+				} else {
+					m.subview = svNone
+				}
 			case svSyncthingDetail:
 				m.subview = svNone
 			case svLITDetail:
@@ -199,6 +204,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				syncOnion := readOnion(paths.TorSyncthingHostname)
 				if syncOnion != "" {
 					m.urlTarget = "http://" + syncOnion + ":8384"
+					m.urlReturnTo = svSyncthingDetail
 					m.subview = svFullURL
 				}
 				return m, nil
@@ -207,6 +213,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				litOnion := readOnion(paths.TorLNDLITHostname)
 				if litOnion != "" {
 					m.urlTarget = "https://" + litOnion + ":8443"
+					m.urlReturnTo = svLITDetail
 					m.subview = svFullURL
 				}
 				return m, nil
@@ -215,6 +222,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				hubOnion := readOnion(paths.TorLndHubHostname)
 				if hubOnion != "" {
 					m.urlTarget = "http://" + hubOnion + ":3000"
+					m.urlReturnTo = svLndHubManage
 					m.subview = svFullURL
 				}
 				return m, nil

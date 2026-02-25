@@ -35,7 +35,7 @@ func (m Model) getBorder(pos cardPos) lipgloss.Style {
 
 func (m Model) cardServicesView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("Services"))
+	lines = append(lines, theme.Header.Render("🚦 Services"))
 	lines = append(lines, "")
 
 	names := []string{"tor", "bitcoind"}
@@ -85,7 +85,7 @@ func (m Model) cardServicesView(w, h int) string {
 
 func (m Model) cardSystemView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("System"))
+	lines = append(lines, theme.Header.Render("🖥️ System"))
 	lines = append(lines, "")
 
 	if m.status != nil {
@@ -113,13 +113,13 @@ func (m Model) cardSystemView(w, h int) string {
 		} else {
 			lines = append(lines, theme.Action.Render("[u]pdate packages"))
 			if m.status != nil && m.status.rebootRequired {
-				lines = append(lines, theme.Warning.Render("⚠ Reboot required"))
+				lines = append(lines, theme.Warning.Render("⚠️ Reboot required"))
 				lines = append(lines, theme.Action.Render("[r]eboot"))
 			}
 		}
 	} else if m.status != nil && m.status.rebootRequired {
 		lines = append(lines, "")
-		lines = append(lines, theme.Warning.Render("⚠ Reboot required"))
+		lines = append(lines, theme.Warning.Render("⚠️ Reboot required"))
 	}
 
 	return m.getBorder(cardSystem).Width(w).

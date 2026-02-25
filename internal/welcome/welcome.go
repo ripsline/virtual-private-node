@@ -111,6 +111,7 @@ type Model struct {
 	urlTarget            string
 	qrMode               string
 	qrLabel              string
+	urlReturnTo          wSubview
 	width                int
 	height               int
 	shellAction          wSubview
@@ -163,6 +164,8 @@ func Show(cfg *config.AppConfig, version string) {
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
+			m = NewModel(cfg, version)
+			m.activeTab = tabAddons
 			continue
 		case svWalletCreate:
 			installer.RunWalletCreation(cfg)
@@ -184,12 +187,16 @@ func Show(cfg *config.AppConfig, version string) {
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
+			m = NewModel(cfg, version)
+			m.activeTab = tabAddons
 			continue
 		case svSyncthingInstall:
 			installer.RunSyncthingInstall(cfg)
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
+			m = NewModel(cfg, version)
+			m.activeTab = tabAddons
 			continue
 		case svSystemUpdate:
 			runSystemUpdate()

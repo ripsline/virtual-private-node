@@ -34,8 +34,9 @@ func (m Model) addonSyncthingCard(w, h int) string {
 
 	if m.cfg.SyncthingInstalled {
 		lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Installed"))
-		lines = append(lines, theme.Label.Render("Version: ")+
-			theme.Value.Render(getSyncthingVersion()))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Version:"))
+		lines = append(lines, theme.Value.Render(getSyncthingVersion()))
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
@@ -67,8 +68,9 @@ func (m Model) addonLITCard(w, h int) string {
 
 	if m.cfg.LITInstalled {
 		lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Installed"))
-		lines = append(lines, theme.Label.Render("Version: ")+
-			theme.Value.Render("v"+installer.LitVersionStr()))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Version:"))
+		lines = append(lines, theme.Value.Render("v"+installer.LitVersionStr()))
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
@@ -106,8 +108,9 @@ func (m Model) addonLndHubCard(w, h int) string {
 			}
 		}
 		lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Installed"))
-		lines = append(lines, theme.Label.Render("Version: ")+
-			theme.Value.Render("v"+installer.LndHubVersionStr()))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Version:"))
+		lines = append(lines, theme.Value.Render("v"+installer.LndHubVersionStr()))
 		lines = append(lines, theme.Label.Render(fmt.Sprintf("Accounts: %d active", activeCount)))
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select to manage ▸"))
@@ -140,20 +143,16 @@ func (m Model) viewSyncthingDetail() string {
 	if syncOnion == "" {
 		lines = append(lines, theme.Warn.Render("Tor address not available yet."))
 	} else {
-		addr := syncOnion + ":8384"
+		fullURL := "http://" + syncOnion + ":8384"
 		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		if len(addr) > 55 {
-			lines = append(lines, "  "+theme.Mono.Render(addr[:55]+"..."))
-		} else {
-			lines = append(lines, "  "+theme.Mono.Render(addr))
-		}
+		lines = append(lines, "  "+theme.Mono.Render(fullURL))
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Label.Render("User: ")+theme.Mono.Render("admin"))
 		if m.cfg.SyncthingPassword != "" {
 			lines = append(lines, "  "+theme.Label.Render("Pass: ")+theme.Mono.Render(m.cfg.SyncthingPassword))
 		}
 		lines = append(lines, "")
-		lines = append(lines, "  "+theme.Action.Render("[u] full Tor Browser URL"))
+		lines = append(lines, "  "+theme.Action.Render("[u] full URL for copy/paste"))
 	}
 
 	lines = append(lines, "")
@@ -179,19 +178,15 @@ func (m Model) viewLITDetail() string {
 	if litOnion == "" {
 		lines = append(lines, theme.Warn.Render("Tor address not available yet."))
 	} else {
-		addr := litOnion + ":8443"
+		fullURL := "https://" + litOnion + ":8443"
 		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		if len(addr) > 55 {
-			lines = append(lines, "  "+theme.Mono.Render(addr[:55]+"..."))
-		} else {
-			lines = append(lines, "  "+theme.Mono.Render(addr))
-		}
+		lines = append(lines, "  "+theme.Mono.Render(fullURL))
 		lines = append(lines, "")
 		if m.cfg.LITPassword != "" {
 			lines = append(lines, "  "+theme.Label.Render("Password: ")+theme.Mono.Render(m.cfg.LITPassword))
 		}
 		lines = append(lines, "")
-		lines = append(lines, "  "+theme.Action.Render("[u] full Tor Browser URL"))
+		lines = append(lines, "  "+theme.Action.Render("[u] full URL for copy/paste"))
 	}
 
 	lines = append(lines, "")

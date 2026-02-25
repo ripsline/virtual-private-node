@@ -248,6 +248,36 @@ func TestSubviewBackspace(t *testing.T) {
 	}
 }
 
+func TestFullURLBackspaceReturnsToOrigin(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 24
+	m.subview = svFullURL
+	m.urlReturnTo = svSyncthingDetail
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svSyncthingDetail {
+		t.Errorf("backspace from full URL: got %d, want %d (syncthing detail)",
+			m.subview, svSyncthingDetail)
+	}
+}
+
+func TestFullURLBackspaceNoReturnTo(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 24
+	m.subview = svFullURL
+	m.urlReturnTo = svNone
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svNone {
+		t.Errorf("backspace from full URL no return: got %d, want %d (none)",
+			m.subview, svNone)
+	}
+}
+
 func TestQRBackspaceGoesToZeus(t *testing.T) {
 	m := testModel()
 	m.width = 80
