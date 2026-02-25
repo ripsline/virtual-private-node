@@ -32,7 +32,11 @@ const (
 	svSyncthingDetail
 	svLITDetail
 	svLndHubDetail
+	svLndHubManage
 	svLndHubCreateAccount
+	svLndHubCreateName
+	svLndHubAccountDetail
+	svLndHubDeactivateConfirm
 	svQR
 	svFullURL
 	svWalletCreate
@@ -83,28 +87,31 @@ type statusMsg struct {
 // ── Model ────────────────────────────────────────────────
 
 type Model struct {
-	cfg           *config.AppConfig
-	version       string
-	activeTab     wTab
-	subview       wSubview
-	dashCard      cardPos
-	cardActive    bool
-	svcCursor     int
-	svcConfirm    string
-	sysConfirm    string
-	logSvcName    string
-	addonFocus    int
-	urlTarget     string
-	qrMode        string
-	width         int
-	height        int
-	shellAction   wSubview
-	status        *statusMsg
-	settingsFocus int
-	latestVersion string
-	updateConfirm bool
-	fetchInFlight bool
-	lastAccount   *installer.LndHubAccount
+	cfg                  *config.AppConfig
+	version              string
+	activeTab            wTab
+	subview              wSubview
+	dashCard             cardPos
+	cardActive           bool
+	svcCursor            int
+	svcConfirm           string
+	sysConfirm           string
+	logSvcName           string
+	addonFocus           int
+	urlTarget            string
+	qrMode               string
+	width                int
+	height               int
+	shellAction          wSubview
+	status               *statusMsg
+	settingsFocus        int
+	latestVersion        string
+	updateConfirm        bool
+	fetchInFlight        bool
+	lastAccount          *installer.LndHubAccount
+	hubCursor            int
+	hubNameInput         string
+	hubDeactivateBalance string
 }
 
 func NewModel(cfg *config.AppConfig, version string) Model {
@@ -177,21 +184,46 @@ func Show(cfg *config.AppConfig, version string) {
 			}
 			continue
 		case svLndHubCreateAccount:
+			if final.hubNameInput == "" {
+				continue
+			}
 			account, err := installer.CreateLndHubAccount(cfg.LndHubAdminToken)
 			if err != nil {
 				logger.TUI("Warning: failed to create LndHub account: %v", err)
+				continue
 			}
-			// Store account to display on next TUI launch
 			if account != nil {
+				cfg.LndHubAccounts = append(cfg.LndHubAccounts, config.LndHubAccount{
+					Label:     final.hubNameInput,
+					Login:     account.Login,
+					CreatedAt: time.Now().Format("2006-01-02"),
+					Active:    true,
+				})
+				config.Save(cfg)
+
+				// Show credentials one time
 				m := NewModel(cfg, version)
 				m.lastAccount = account
-				m.subview = svLndHubDetail
+				m.hubNameInput = final.hubNameInput
+				m.subview = svLndHubCreateAccount
 				p := tea.NewProgram(m, tea.WithAltScreen())
-				result, _ := p.Run()
-				final = result.(Model)
-				// If they quit from detail, fall through to check shellAction again
-				if final.shellAction != svNone {
-					continue
+				p.Run()
+			}
+			continue
+		case svLndHubDeactivateConfirm:
+			if final.hubCursor < len(cfg.LndHubAccounts) {
+				acct := &cfg.LndHubAccounts[final.hubCursor]
+				if acct.Active {
+					balance, _ := installer.GetUserBalance(acct.Login)
+					if err := installer.DeactivateUser(acct.Login); err != nil {
+						logger.TUI("Warning: deactivate failed: %v", err)
+					} else {
+						acct.Active = false
+						acct.DeactivatedAt = time.Now().Format("2006-01-02")
+						acct.BalanceOnDeactivate = balance
+						config.Save(cfg)
+						logger.TUI("Deactivated account %s (balance: %s sats)", acct.Label, balance)
+					}
 				}
 			}
 			continue

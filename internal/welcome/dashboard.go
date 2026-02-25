@@ -191,7 +191,6 @@ func (m Model) cardLightningView(w, h int) string {
 		Padding(0, 1).Render(padLines(lines, h))
 }
 
-// viewLightning is the detail subview for Lightning
 func (m Model) viewLightning() string {
 	bw := min(m.width-4, theme.ContentWidth)
 	var lines []string

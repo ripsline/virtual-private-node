@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/ripsline/virtual-private-node/internal/config"
 	"github.com/ripsline/virtual-private-node/internal/logger"
@@ -280,4 +281,47 @@ func CreateLndHubAccount(adminToken string) (*LndHubAccount, error) {
 	}
 
 	return &account, nil
+}
+
+// ── Balance query ────────────────────────────────────────
+
+// GetUserBalance queries the LndHub PostgreSQL database for a user's balance.
+// Only used during account deactivation to inform the admin.
+func GetUserBalance(login string) (string, error) {
+	query := fmt.Sprintf(`SELECT COALESCE(
+        (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.credit_account_id = a.id) -
+        (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.debit_account_id = a.id), 0)
+        FROM accounts a JOIN users u ON a.user_id = u.id
+        WHERE u.login = '%s' AND a.type = 'current'`, login)
+
+	output, err := system.RunContext(10e9,
+		"sudo", "-u", "postgres", "psql",
+		"-t", "-A", "lndhub",
+		"-c", query)
+	if err != nil {
+		return "unknown", nil
+	}
+
+	balance := strings.TrimSpace(output)
+	if balance == "" {
+		return "0", nil
+	}
+	return balance, nil
+}
+
+// ── Deactivation ─────────────────────────────────────────
+
+// DeactivateUser sets the deactivated flag on a user in the LndHub database.
+// The user's wallet immediately stops working.
+func DeactivateUser(login string) error {
+	_, err := system.RunContext(10e9,
+		"sudo", "-u", "postgres", "psql",
+		"lndhub",
+		"-c", fmt.Sprintf("UPDATE users SET deactivated = true WHERE login = '%s'", login))
+	if err != nil {
+		return fmt.Errorf("deactivate user: %w", err)
+	}
+
+	logger.TUI("Deactivated LndHub user: %s", login)
+	return nil
 }

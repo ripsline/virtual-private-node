@@ -425,9 +425,9 @@ func TestAddonsLndHubDetailWhenInstalled(t *testing.T) {
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
-	if m.subview != svLndHubDetail {
+	if m.subview != svLndHubManage {
 		t.Errorf("enter on installed LndHub: got subview %d, want %d",
-			m.subview, svLndHubDetail)
+			m.subview, svLndHubManage)
 	}
 }
 

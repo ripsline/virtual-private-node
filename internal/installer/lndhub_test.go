@@ -5,6 +5,8 @@ package installer
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/ripsline/virtual-private-node/internal/config"
 )
 
 func TestLndHubVersionStr(t *testing.T) {
@@ -78,8 +80,61 @@ func TestLndHubAccountParsingError(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// Login should be empty when error response
 	if account.Login != "" {
 		t.Errorf("Login should be empty on error response, got %q", account.Login)
+	}
+}
+
+func TestLndHubAccountParsingWithLabel(t *testing.T) {
+	raw := `{"login":"MLS53uD0uTQUiDt3qd9H","password":"T87I8RUd7eQandfGGnpn"}`
+
+	var account LndHubAccount
+	if err := json.Unmarshal([]byte(raw), &account); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if account.Login == "" {
+		t.Error("Login should not be empty")
+	}
+}
+
+func TestConfigLndHubAccount(t *testing.T) {
+	cfg := config.Default()
+	cfg.LndHubAccounts = append(cfg.LndHubAccounts, config.LndHubAccount{
+		Label:     "Alice",
+		Login:     "abc123",
+		CreatedAt: "2026-02-23",
+		Active:    true,
+	})
+
+	if len(cfg.LndHubAccounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(cfg.LndHubAccounts))
+	}
+	if cfg.LndHubAccounts[0].Label != "Alice" {
+		t.Errorf("Label: got %q, want Alice", cfg.LndHubAccounts[0].Label)
+	}
+	if !cfg.LndHubAccounts[0].Active {
+		t.Error("account should be active")
+	}
+}
+
+func TestConfigLndHubAccountDeactivated(t *testing.T) {
+	acct := config.LndHubAccount{
+		Label:               "Bob",
+		Login:               "def456",
+		CreatedAt:           "2026-02-23",
+		Active:              false,
+		DeactivatedAt:       "2026-02-24",
+		BalanceOnDeactivate: "5000",
+	}
+
+	if acct.Active {
+		t.Error("should be inactive")
+	}
+	if acct.BalanceOnDeactivate != "5000" {
+		t.Errorf("balance: got %q, want 5000", acct.BalanceOnDeactivate)
+	}
+	if acct.DeactivatedAt != "2026-02-24" {
+		t.Errorf("deactivated: got %q", acct.DeactivatedAt)
 	}
 }
