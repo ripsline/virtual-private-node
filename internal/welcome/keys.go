@@ -595,6 +595,9 @@ func (m Model) svcCount() int {
 	if m.cfg.LndHubInstalled {
 		n++
 	}
+	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
+		n++
+	}
 	return n
 }
 
