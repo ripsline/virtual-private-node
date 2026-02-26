@@ -4,7 +4,6 @@ package welcome
 
 import (
 	"fmt"
-	"os/exec"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -66,15 +65,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tickMsg:
 		if m.fetchInFlight {
-			return m, tickEvery(5e9)
+			return m, tickEvery(5 * time.Second)
 		}
 		m.fetchInFlight = true
 		return m, tea.Batch(
 			fetchStatus(m.cfg),
-			tickEvery(5e9),
+			tickEvery(5*time.Second),
 		)
 	}
 	return m, nil
+}
+
+// isAllowedHubNameChar returns true for letters, numbers, spaces, and hyphens.
+func isAllowedHubNameChar(key string) bool {
+	if len(key) != 1 {
+		return false
+	}
+	c := key[0]
+	return (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') ||
+		c == ' ' || c == '-'
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -100,7 +111,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			default:
-				if len(key) == 1 && len(m.hubNameInput) < 20 {
+				if isAllowedHubNameChar(key) && len(m.hubNameInput) < 30 {
 					m.hubNameInput += key
 				}
 				return m, nil
@@ -162,8 +173,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.subview == svLndHubCreateAccount && m.lastAccount != nil {
 				hubOnion := readOnion(paths.TorLndHubHostname)
 				if hubOnion != "" {
-					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@http://%s:3000",
-						m.lastAccount.Login, m.lastAccount.Password, hubOnion)
+					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@http://%s:%s",
+						m.lastAccount.Login, m.lastAccount.Password,
+						hubOnion, paths.LndHubExternalPort)
 					m.qrLabel = m.hubNameInput + " — Tor"
 					m.subview = svQR
 				}
@@ -187,8 +199,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					ip = m.status.publicIP
 				}
 				if ip != "" {
-					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@http://%s:3000",
-						m.lastAccount.Login, m.lastAccount.Password, ip)
+					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@https://%s:%s",
+						m.lastAccount.Login, m.lastAccount.Password,
+						ip, paths.LndHubExternalPort)
 					m.qrLabel = m.hubNameInput + " — Clearnet"
 					m.subview = svQR
 				}
@@ -221,7 +234,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.subview == svLndHubManage {
 				hubOnion := readOnion(paths.TorLndHubHostname)
 				if hubOnion != "" {
-					m.urlTarget = "http://" + hubOnion + ":3000"
+					m.urlTarget = "http://" + hubOnion + ":" + paths.LndHubExternalPort
 					m.urlReturnTo = svLndHubManage
 					m.subview = svFullURL
 				}
@@ -363,7 +376,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 				action := m.svcConfirm
 				m.svcConfirm = ""
 				return m, func() tea.Msg {
-					exec.Command("sudo", "systemctl", action, svc).Run()
+					system.SudoRun("systemctl", action, svc)
 					return svcActionDoneMsg{}
 				}
 			default:
@@ -406,7 +419,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 				}
 				if action == "reboot" {
 					return m, func() tea.Msg {
-						system.Run("reboot")
+						system.SudoRun("reboot")
 						return svcActionDoneMsg{}
 					}
 				}

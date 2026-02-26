@@ -339,6 +339,8 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	}
 	fmt.Println("  ✅ LND is ready")
 
+	// lncli create needs interactive stdin/stdout — exec.Command is
+	// the correct choice here (system.Run captures output).
 	cmd := exec.Command("sudo", "-u", systemUser, "lncli",
 		"--lnddir=/var/lib/lnd", "--network="+net.LNCLINetwork, "create")
 	cmd.Stdin = os.Stdin
@@ -500,8 +502,14 @@ func RunP2PModeUpgrade(cfg *config.AppConfig) error {
 		theme.Value.Render("  • Open ports 9735 and 8080 in the firewall") + "\n" +
 		theme.Value.Render("  • Allow Zeus to connect over clearnet") + "\n" +
 		theme.Value.Render("  • Regenerate LND TLS certificate") + "\n" +
-		theme.Value.Render("  • Restart LND") + "\n\n" +
-		theme.Warning.Render("Your IP: "+publicIPv4) + "\n" +
+		theme.Value.Render("  • Restart LND") + "\n\n"
+
+	if cfg.LndHubInstalled {
+		confirmMsg += theme.Value.Render("  • Install TLS proxy for LndHub clearnet") + "\n" +
+			theme.Value.Render("  • Open port 3000 for encrypted LndHub access") + "\n\n"
+	}
+
+	confirmMsg += theme.Warning.Render("Your IP: "+publicIPv4) + "\n" +
 		theme.Warning.Render("This cannot be undone — your IP will be public.") + "\n\n" +
 		theme.Dim.Render("Enter to proceed • backspace to cancel")
 	if !ShowConfirmBox(confirmMsg) {
@@ -524,6 +532,17 @@ func RunP2PModeUpgrade(cfg *config.AppConfig) error {
 		{name: "Restarting LND", fn: func() error {
 			return system.SudoRun("systemctl", "restart", "lnd")
 		}},
+	}
+
+	// If LndHub is already installed, add proxy steps
+	if cfg.LndHubInstalled {
+		steps = append(steps,
+			installStep{name: "Generating TLS certificate for LndHub proxy", fn: func() error {
+				return generateProxyCert(publicIPv4)
+			}},
+			installStep{name: "Creating LndHub proxy service", fn: writeLndHubProxyService},
+			installStep{name: "Starting LndHub TLS proxy", fn: startLndHubProxy},
+		)
 	}
 
 	if err := RunInstallTUI(steps, appVersion); err != nil {
@@ -667,6 +686,11 @@ func RunLndHubInstall(cfg *config.AppConfig) error {
 
 	cfg.LndHubInstalled = true
 
+	publicIPv4 := ""
+	if cfg.P2PMode == "hybrid" {
+		publicIPv4 = system.PublicIPv4()
+	}
+
 	steps := []installStep{
 		{name: "Installing Go toolchain", fn: installGoToolchain},
 		{name: "Installing PostgreSQL", fn: installPostgreSQL},
@@ -684,6 +708,17 @@ func RunLndHubInstall(cfg *config.AppConfig) error {
 		{name: "Rebuilding Tor config", fn: func() error { return RebuildTorConfig(cfg) }},
 		{name: "Restarting Tor", fn: restartTor},
 		{name: "Starting LndHub", fn: startLndHub},
+	}
+
+	// Add proxy steps if hybrid mode is active
+	if cfg.P2PMode == "hybrid" && publicIPv4 != "" {
+		steps = append(steps,
+			installStep{name: "Generating TLS certificate for LndHub proxy", fn: func() error {
+				return generateProxyCert(publicIPv4)
+			}},
+			installStep{name: "Creating LndHub proxy service", fn: writeLndHubProxyService},
+			installStep{name: "Starting LndHub TLS proxy", fn: startLndHubProxy},
+		)
 	}
 
 	if err := RunInstallTUI(steps, appVersion); err != nil {
@@ -779,27 +814,24 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 				"hkps://keys.openpgp.org", "--recv-keys", expectedFP); err != nil {
 				return fmt.Errorf("could not import signing key from keyserver: %w", err)
 			}
-			cmd := exec.Command("gpg", "--batch", "--with-colons",
+			output, err := system.RunCombinedOutput("gpg", "--batch", "--with-colons",
 				"--list-keys", expectedFP)
-			output, err := cmd.CombinedOutput()
-			if err != nil || !strings.Contains(string(output), expectedFP) {
+			if err != nil || !strings.Contains(output, expectedFP) {
 				return fmt.Errorf("release key fingerprint mismatch")
 			}
 			return nil
 		}},
 		{name: "Verifying signature", fn: func() error {
-			cmd := exec.Command("gpg", "--batch", "--verify",
+			output, err := system.RunCombinedOutput("gpg", "--batch", "--verify",
 				"/tmp/rlvpn-SHA256SUMS.asc", "/tmp/rlvpn-SHA256SUMS")
-			output, err := cmd.CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("signature verification failed: %s", output)
 			}
 			return nil
 		}},
 		{name: "Verifying checksum", fn: func() error {
-			cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "rlvpn-SHA256SUMS")
-			cmd.Dir = "/tmp"
-			output, err := cmd.CombinedOutput()
+			output, err := system.RunCombinedOutput("sha256sum", "--ignore-missing",
+				"--check", "/tmp/rlvpn-SHA256SUMS")
 			if err != nil {
 				return fmt.Errorf("checksum failed: %s", output)
 			}
@@ -824,7 +856,6 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 	return RunInstallTUI(steps, appVersion)
 }
 
-const versionCachePath = "/tmp/rlvpn-latest-version"
 const versionCacheMaxAge = 24 * time.Hour
 
 func CheckLatestVersion() string {
@@ -833,7 +864,7 @@ func CheckLatestVersion() string {
 		return cached
 	}
 
-	output, err := system.RunContext(10e9, "curl", "-sL",
+	output, err := system.RunContext(10*time.Second, "curl", "-sL",
 		"https://api.github.com/repos/ripsline/virtual-private-node/releases/latest")
 	if err != nil {
 		return ""
@@ -852,14 +883,14 @@ func CheckLatestVersion() string {
 }
 
 func readVersionCache() string {
-	info, err := os.Stat(versionCachePath)
+	info, err := os.Stat(paths.VersionCacheFile)
 	if err != nil {
 		return ""
 	}
 	if time.Since(info.ModTime()) > versionCacheMaxAge {
 		return ""
 	}
-	data, err := os.ReadFile(versionCachePath)
+	data, err := os.ReadFile(paths.VersionCacheFile)
 	if err != nil {
 		return ""
 	}
@@ -867,7 +898,12 @@ func readVersionCache() string {
 }
 
 func writeVersionCache(version string) {
-	os.WriteFile(versionCachePath, []byte(version), 0600)
+	existing := readVersionCache()
+	if existing == version {
+		return
+	}
+	os.MkdirAll(paths.VersionCacheDir, 0750)
+	os.WriteFile(paths.VersionCacheFile, []byte(version), 0600)
 }
 
 func GetVersion() string {

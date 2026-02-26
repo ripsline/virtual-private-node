@@ -15,6 +15,7 @@ and `systemctl`. No wrappers, no abstractions. Your keys, your node.
 
 - **LND 0.20.0-beta** — Lightning with Tor hidden services (from Dashboard)
 - **Lightning Terminal v0.16.0-alpha** — browser UI for channel management (from Add-ons)
+- **LndHub.go v1.0.2** — Lightning accounts for family, friends, and agents (from Add-ons, built from source)
 - **Syncthing** — automatic LND channel backup over Tor (from Add-ons)
 
 ![Screenshot](docs/images/dashboard.png)
@@ -52,7 +53,7 @@ Every SSH login as`ripsline` opens a dashboard with four tabs:
 
 - **Dashboard** — Services (with logs), System, Bitcoin, and Lightning cards
 - **Pairing** — Zeus wallet connection with QR codes (Tor and clearnet)
-- **Add-ons** — install Lightning Terminal and Syncthing
+- **Add-ons** — install Lightning Terminal, LndHub, and Syncthing
 - **Settings** — self-update
 
 Press`q` to drop to a shell:
@@ -70,6 +71,7 @@ systemctl status bitcoind
 systemctl status tor@default
 systemctl status lnd
 systemctl status litd
+systemctl status lndhub
 systemctl status syncthing
 ```
 
@@ -106,6 +108,9 @@ All software is verified with GPG signatures and SHA256 checksums:
   Requires 2 of 5 valid signatures. A bad signature (BADSIG) from any key is a hard stop.
 - **LND** — Roasbeef's signing key verified against known fingerprint.
 - **Lightning Terminal** — ViktorT-11's signing key from Ubuntu keyserver.
+- **LndHub.go** — built from source at pinned release tag (v1.0.2).
+  No prebuilt binary is used. The Go toolchain compiles directly from
+  the [getAlby/lndhub.go](https://github.com/getAlby/lndhub.go) repository.
 
 Verification failure is a hard stop.
 
@@ -147,6 +152,39 @@ You can upgrade from Tor-only to hybrid later from the Lightning
 details view. This is a one-way change — once your IP is published
 to the network gossip, it cannot be retracted.
 
+### LndHub — Lightning Accounts
+
+LndHub.go provides separate Lightning wallet accounts backed by your
+LND node. Create accounts for family, friends, or AI agents from the
+Add-ons tab. Each account gets isolated credentials and connects via
+Zeus or any LndHub-compatible wallet.
+
+**How it works:**
+
+1. Install LndHub from the Add-ons tab
+2. Create accounts from the LndHub management screen
+3. Share the login, password, and server address with the user
+4. They connect Zeus: Advanced Set-Up → LndHub → enter credentials
+5. Fund their account by paying an invoice they generate
+
+**Privacy model:**
+
+- Passwords are shown once at creation and never stored
+- The admin cannot see user balances through the TUI
+- Account deactivation records the balance for refund purposes
+- LndHub uses a dedicated macaroon with minimal LND permissions
+  (info:read, invoices:read/write, offchain:read/write)
+
+**Built from source:**
+
+LndHub.go is cloned from GitHub at a pinned release tag and compiled
+on your server using the Go toolchain. No prebuilt binaries are downloaded.
+PostgreSQL is installed as the database backend.
+
+**Clearnet note:** Clearnet connections (hybrid P2P mode) are currently
+unencrypted HTTP. Use Tor for private connections. HTTPS support is
+planned for a future release.
+
 ### Syncthing Channel Backups
 
 Syncthing automatically syncs your LND`channel.backup` file to
@@ -163,7 +201,7 @@ For the full setup guide, see
 - All connections through Tor (SOCKS5 port 9050)
 - IPv6 disabled to prevent Tor bypass
 - Stream isolation (separate circuit per connection)
-- UFW firewall: SSH only (+ 9735, 8080 for hybrid P2P)
+- UFW firewall: SSH only (+ 9735, 8080, 3000 for hybrid P2P)
 - Fail2ban: SSH brute-force protection
 - Root SSH disabled after bootstrap
 - Services run as dedicated bitcoin system user
@@ -187,6 +225,7 @@ Services (systemd, run as bitcoin user):
   bitcoind.service   → pruned node, Tor-routed, wallet disabled
   lnd.service → Lightning (from Dashboard)
   litd.service       → Lightning Terminal (add-on)
+  lndhub.service     → Lightning accounts (add-on, built from source)
   syncthing.service  → channel backup sync (add-on)
 ```
 
@@ -198,10 +237,12 @@ Services (systemd, run as bitcoin user):
 | /etc/lnd/lnd.conf | LND configuration |
 | /etc/lit/lit.conf | Lightning Terminal configuration |
 | /etc/syncthing/ | Syncthing configuration |
+| /etc/lndhub/lndhub.env | LndHub configuration and secrets |
 | /etc/rlvpn/config.json | Install state and credentials |
 | /var/lib/bitcoin/ | Blockchain data |
 | /var/lib/lnd/ | LND data and wallet |
 | /var/lib/lit/ | Lightning Terminal data |
+| /var/lib/lndhub/ | LndHub data |
 | /var/lib/syncthing/lnd-backup/ | Auto-synced channel.backup |
 | /var/log/rlvpn.log | Application log (install, verification, status) |
 

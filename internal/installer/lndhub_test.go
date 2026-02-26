@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/paths"
 )
 
 func TestLndHubVersionStr(t *testing.T) {
@@ -136,5 +137,70 @@ func TestConfigLndHubAccountDeactivated(t *testing.T) {
 	}
 	if acct.DeactivatedAt != "2026-02-24" {
 		t.Errorf("deactivated: got %q", acct.DeactivatedAt)
+	}
+}
+
+// ── Login validation tests ───────────────────────────────
+
+func TestValidateLoginValid(t *testing.T) {
+	valid := []string{
+		"MLS53uD0uTQUiDt3qd9H",
+		"abc123",
+		"ABCDEF",
+		"a",
+		"0123456789",
+	}
+	for _, login := range valid {
+		if err := validateLogin(login); err != nil {
+			t.Errorf("validateLogin(%q) should pass: %v", login, err)
+		}
+	}
+}
+
+func TestValidateLoginInvalid(t *testing.T) {
+	invalid := []string{
+		"",
+		"abc 123",
+		"abc'123",
+		"abc;DROP TABLE users;--",
+		"abc\n123",
+		"abc/123",
+		"abc\"123",
+		"abc$123",
+		"abc|123",
+		"abc&123",
+	}
+	for _, login := range invalid {
+		if err := validateLogin(login); err == nil {
+			t.Errorf("validateLogin(%q) should fail", login)
+		}
+	}
+}
+
+func TestValidateLoginMaxLength(t *testing.T) {
+	// 40 chars should pass
+	long40 := "abcdefghijklmnopqrstuvwxyz01234567890123"
+	if len(long40) != 40 {
+		t.Fatalf("test string length: %d", len(long40))
+	}
+	if err := validateLogin(long40); err != nil {
+		t.Errorf("40-char login should pass: %v", err)
+	}
+
+	// 41 chars should fail
+	long41 := long40 + "x"
+	if err := validateLogin(long41); err == nil {
+		t.Error("41-char login should fail")
+	}
+}
+
+// ── Port constants tests ─────────────────────────────────
+
+func TestLndHubPortConstants(t *testing.T) {
+	if paths.LndHubInternalPort != "3004" {
+		t.Errorf("internal port: got %q, want 3004", paths.LndHubInternalPort)
+	}
+	if paths.LndHubExternalPort != "3000" {
+		t.Errorf("external port: got %q, want 3000", paths.LndHubExternalPort)
 	}
 }

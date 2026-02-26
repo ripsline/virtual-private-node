@@ -107,8 +107,10 @@ func configureFirewall(cfg *config.AppConfig) error {
 		commands = append(commands, []string{"ufw", "allow", "8080/tcp"})
 	}
 
+	// LndHub clearnet access goes through the TLS proxy on the external port.
+	// The internal LndHub port (3004) is never exposed.
 	if cfg.LndHubInstalled && cfg.P2PMode == "hybrid" {
-		commands = append(commands, []string{"ufw", "allow", "3000/tcp"})
+		commands = append(commands, []string{"ufw", "allow", paths.LndHubExternalPort + "/tcp"})
 	}
 
 	commands = append(commands, []string{"ufw", "--force", "enable"})

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/paths"
 )
 
 func TestTorConfigBitcoinOnly(t *testing.T) {
@@ -180,12 +181,17 @@ func TestTorConfigWithLndHub(t *testing.T) {
 
 	required := []string{
 		"lndhub",
-		"HiddenServicePort 3000",
+		"HiddenServicePort " + paths.LndHubExternalPort,
 	}
 	for _, req := range required {
 		if !strings.Contains(content, req) {
 			t.Errorf("missing %q in LndHub torrc", req)
 		}
+	}
+
+	// Verify Tor points to internal port
+	if !strings.Contains(content, "127.0.0.1:"+paths.LndHubInternalPort) {
+		t.Error("LndHub hidden service should point to internal port " + paths.LndHubInternalPort)
 	}
 }
 
@@ -219,11 +225,26 @@ func TestTorConfigFullStackWithLndHub(t *testing.T) {
 		"syncthing",
 		"syncthing-sync",
 		"lndhub",
-		"HiddenServicePort 3000",
+		"HiddenServicePort " + paths.LndHubExternalPort,
+		"127.0.0.1:" + paths.LndHubInternalPort,
 	}
 	for _, req := range required {
 		if !strings.Contains(content, req) {
 			t.Errorf("full stack with lndhub torrc missing %q", req)
 		}
+	}
+}
+
+func TestTorConfigLndHubInternalPort(t *testing.T) {
+	cfg := &config.AppConfig{
+		Network:         "mainnet",
+		LNDInstalled:    true,
+		LndHubInstalled: true,
+	}
+	content := BuildTorConfig(cfg)
+
+	// Should NOT point directly to external port on localhost
+	if strings.Contains(content, "127.0.0.1:"+paths.LndHubExternalPort) {
+		t.Error("Tor should point to internal port, not external port")
 	}
 }

@@ -286,7 +286,7 @@ func (m Model) viewLndHubCreateName() string {
 	lines = append(lines, "  "+theme.Label.Render("Name: ")+
 		theme.Value.Render(m.hubNameInput+"_"))
 	lines = append(lines, "")
-	lines = append(lines, "  "+theme.Dim.Render("Type a name for this account"))
+	lines = append(lines, "  "+theme.Dim.Render("Letters, numbers, spaces, hyphens"))
 	lines = append(lines, "  "+theme.Dim.Render("Press enter to create"))
 
 	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
@@ -299,18 +299,18 @@ func (m Model) viewLndHubCreateName() string {
 func (m Model) viewLndHubNewAccount() string {
 	bw := min(m.width-4, theme.ContentWidth)
 	var lines []string
-	lines = append(lines, theme.Success.Render("✓ Account created: "+m.hubNameInput))
+	lines = append(lines, theme.Success.Render("✅ Account created: "+m.hubNameInput))
 	lines = append(lines, "")
 
 	if m.lastAccount != nil {
 		hubOnion := readOnion(paths.TorLndHubHostname)
 		if hubOnion != "" {
 			lines = append(lines, "  "+theme.Label.Render("Tor:"))
-			lines = append(lines, "  "+theme.Mono.Render(hubOnion+":3000"))
+			lines = append(lines, "  "+theme.Mono.Render(hubOnion+":"+paths.LndHubExternalPort))
 		}
 		if m.cfg.P2PMode == "hybrid" && m.status != nil && m.status.publicIP != "" {
-			lines = append(lines, "  "+theme.Label.Render("Clearnet:"))
-			lines = append(lines, "  "+theme.Mono.Render(m.status.publicIP+":3000"))
+			lines = append(lines, "  "+theme.Label.Render("Clearnet (HTTPS):"))
+			lines = append(lines, "  "+theme.Mono.Render(m.status.publicIP+":"+paths.LndHubExternalPort))
 		}
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Label.Render("Login:    ")+

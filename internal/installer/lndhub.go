@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ripsline/virtual-private-node/internal/config"
 	"github.com/ripsline/virtual-private-node/internal/logger"
@@ -24,14 +26,26 @@ const (
 	goInstallDir  = "/usr/local/go"
 )
 
+// loginPattern matches LndHub login strings: alphanumeric, 1-40 chars.
+var loginPattern = regexp.MustCompile(`^[a-zA-Z0-9]{1,40}$`)
+
 func LndHubVersionStr() string { return lndhubVersion }
+
+// validateLogin ensures a login string is safe for use in database queries.
+// LndHub generates alphanumeric login strings. Anything else is rejected.
+func validateLogin(login string) error {
+	if !loginPattern.MatchString(login) {
+		return fmt.Errorf("invalid login format: must be alphanumeric, got %q", login)
+	}
+	return nil
+}
 
 // ── Go toolchain ─────────────────────────────────────────
 
 func installGoToolchain() error {
 	goPath := goInstallDir + "/bin/go"
 	if _, err := os.Stat(goPath); err == nil {
-		output, err := system.RunContext(5e9, goPath, "version")
+		output, err := system.RunContext(5*time.Second, goPath, "version")
 		if err == nil && output != "" {
 			logger.Install("Go already installed: %s", output)
 			return nil
@@ -68,19 +82,18 @@ func installPostgreSQL() error {
 }
 
 func createLndHubDatabase(dbPassword string) error {
-	checkCmd := exec.Command("sudo", "-u", "postgres", "psql", "-tAc",
+	checkOutput, err := system.SudoRunOutput("-u", "postgres", "psql", "-tAc",
 		"SELECT 1 FROM pg_roles WHERE rolname='lndhub'")
-	checkOutput, _ := checkCmd.CombinedOutput()
-	if string(checkOutput) == "1\n" {
+	if err == nil && strings.TrimSpace(checkOutput) == "1" {
 		logger.Install("PostgreSQL user lndhub already exists")
 		return nil
 	}
 
 	createUser := fmt.Sprintf("CREATE USER lndhub WITH PASSWORD '%s'", dbPassword)
-	if err := system.SudoRun("sudo", "-u", "postgres", "psql", "-c", createUser); err != nil {
+	if err := system.SudoRun("-u", "postgres", "psql", "-c", createUser); err != nil {
 		return fmt.Errorf("create postgres user: %w", err)
 	}
-	if err := system.SudoRun("sudo", "-u", "postgres", "psql", "-c",
+	if err := system.SudoRun("-u", "postgres", "psql", "-c",
 		"CREATE DATABASE lndhub OWNER lndhub"); err != nil {
 		return fmt.Errorf("create database: %w", err)
 	}
@@ -104,6 +117,8 @@ func cloneLndHub() error {
 func buildLndHub() error {
 	goPath := goInstallDir + "/bin/go"
 
+	// buildLndHub uses exec.Command directly because it needs
+	// custom Dir and Env fields that system.Run does not support.
 	cmd := exec.Command(goPath, "build", "-trimpath",
 		"-ldflags=-s -w",
 		"-o", "/tmp/lndhub.go/lndhub",
@@ -143,14 +158,13 @@ func installLndHubBinary() error {
 func bakeLndHubMacaroon(cfg *config.AppConfig) error {
 	net := cfg.NetworkConfig()
 
-	cmd := exec.Command("sudo", "-u", systemUser, "lncli",
+	output, err := system.SudoRunCombinedOutput("-u", systemUser, "lncli",
 		"--lnddir="+paths.LNDDataDir,
 		"--network="+net.LNCLINetwork,
 		"bakemacaroon",
 		"--save_to="+paths.LndHubMacaroon,
 		"info:read", "invoices:read", "invoices:write",
 		"offchain:read", "offchain:write")
-	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("bake macaroon: %s: %s", err, output)
 	}
@@ -203,12 +217,13 @@ LND_ADDRESS=localhost:10009
 LND_MACAROON_FILE=%s
 LND_CERT_FILE=%s
 HOST=127.0.0.1
-PORT=3000
+PORT=%s
 ENABLE_PROMETHEUS=false
 ALLOW_ACCOUNT_CREATION=true
 ADMIN_TOKEN=%s
 FEE_RESERVE=false
-`, dbPassword, jwtSecret, paths.LndHubMacaroon, paths.LNDTLSCert, adminToken)
+`, dbPassword, jwtSecret, paths.LndHubMacaroon, paths.LNDTLSCert,
+		paths.LndHubInternalPort, adminToken)
 
 	if err := system.SudoWriteFile(paths.LndHubEnv, []byte(content), 0640); err != nil {
 		return err
@@ -261,12 +276,12 @@ type LndHubAccount struct {
 }
 
 func CreateLndHubAccount(adminToken string) (*LndHubAccount, error) {
-	output, err := system.RunContext(10e9, "curl", "-s",
+	output, err := system.RunContext(10*time.Second, "curl", "-s",
 		"-X", "POST",
 		"-H", "Content-Type: application/json",
 		"-H", "Authorization: Bearer "+adminToken,
 		"-d", "{}",
-		"http://127.0.0.1:3000/create")
+		"http://127.0.0.1:"+paths.LndHubInternalPort+"/create")
 	if err != nil {
 		return nil, fmt.Errorf("create account: %w", err)
 	}
@@ -288,13 +303,17 @@ func CreateLndHubAccount(adminToken string) (*LndHubAccount, error) {
 // GetUserBalance queries the LndHub PostgreSQL database for a user's balance.
 // Only used during account deactivation to inform the admin.
 func GetUserBalance(login string) (string, error) {
+	if err := validateLogin(login); err != nil {
+		return "unknown", fmt.Errorf("balance query: %w", err)
+	}
+
 	query := fmt.Sprintf(`SELECT COALESCE(
         (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.credit_account_id = a.id) -
         (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.debit_account_id = a.id), 0)
         FROM accounts a JOIN users u ON a.user_id = u.id
         WHERE u.login = '%s' AND a.type = 'current'`, login)
 
-	output, err := system.RunContext(10e9,
+	output, err := system.RunContext(10*time.Second,
 		"sudo", "-u", "postgres", "psql",
 		"-t", "-A", "lndhub",
 		"-c", query)
@@ -314,7 +333,11 @@ func GetUserBalance(login string) (string, error) {
 // DeactivateUser sets the deactivated flag on a user in the LndHub database.
 // The user's wallet immediately stops working.
 func DeactivateUser(login string) error {
-	_, err := system.RunContext(10e9,
+	if err := validateLogin(login); err != nil {
+		return fmt.Errorf("deactivate: %w", err)
+	}
+
+	_, err := system.RunContext(10*time.Second,
 		"sudo", "-u", "postgres", "psql",
 		"lndhub",
 		"-c", fmt.Sprintf("UPDATE users SET deactivated = true WHERE login = '%s'", login))

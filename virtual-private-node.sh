@@ -247,6 +247,13 @@ echo "  ✓ Configured auto-launch"
 
 # ── Disable root SSH login ──────────────────────────────────
 
+# Drop-in file — persistent override that survives package upgrades
+mkdir -p /etc/ssh/sshd_config.d
+echo "PermitRootLogin no" > /etc/ssh/sshd_config.d/99-no-root.conf
+chmod 644 /etc/ssh/sshd_config.d/99-no-root.conf
+echo "  ✓ Created sshd drop-in (PermitRootLogin no)"
+
+# Belt-and-suspenders: also update main config for non-standard setups
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 if ! grep -q "^PermitRootLogin no" /etc/ssh/sshd_config; then
     echo "PermitRootLogin no" >> /etc/ssh/sshd_config

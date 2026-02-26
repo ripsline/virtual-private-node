@@ -651,3 +651,47 @@ func TestLndHubAccountCreatedMsgError(t *testing.T) {
 		t.Error("should not have added account on error")
 	}
 }
+
+// ── Hub Name Input Validation ────────────────────────────
+
+func TestHubNameAllowedChars(t *testing.T) {
+	allowed := []string{"a", "Z", "0", "9", " ", "-"}
+	for _, key := range allowed {
+		if !isAllowedHubNameChar(key) {
+			t.Errorf("isAllowedHubNameChar(%q) should be true", key)
+		}
+	}
+}
+
+func TestHubNameRejectedChars(t *testing.T) {
+	rejected := []string{";", "'", "\"", "/", "\\", "|", "&", "$", "`", "\n", "\t", ".", ",", "!", "@", "#"}
+	for _, key := range rejected {
+		if isAllowedHubNameChar(key) {
+			t.Errorf("isAllowedHubNameChar(%q) should be false", key)
+		}
+	}
+}
+
+func TestHubNameMultiByteRejected(t *testing.T) {
+	if isAllowedHubNameChar("ab") {
+		t.Error("multi-byte input should be rejected")
+	}
+	if isAllowedHubNameChar("") {
+		t.Error("empty input should be rejected")
+	}
+}
+
+func TestHubNameMaxLength(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubCreateName
+	m.hubNameInput = "abcdefghijklmnopqrstuvwxyz1234" // 30 chars
+
+	// Try to add one more
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = newM.(Model)
+	if len(m.hubNameInput) != 30 {
+		t.Errorf("name length: got %d, want 30 (max)", len(m.hubNameInput))
+	}
+}
