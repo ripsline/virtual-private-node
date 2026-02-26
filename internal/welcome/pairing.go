@@ -124,7 +124,7 @@ func (m Model) viewZeus() string {
 	}
 
 	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
-	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" Zeus Wallet Setup ")
+	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ Zeus — Node Wallet ")
 	var footer string
 	if m.cfg.P2PMode == "hybrid" {
 		footer = theme.Footer.Render("  m macaroon • r QR (Tor) • c QR (Clearnet) • backspace back • q quit  ")

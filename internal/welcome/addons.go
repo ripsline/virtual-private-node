@@ -201,7 +201,7 @@ func (m Model) viewLITDetail() string {
 	lines = append(lines, theme.Dim.Render("  2. Paste URL above"))
 	lines = append(lines, theme.Dim.Render("  3. Ignore security warning"))
 	lines = append(lines, theme.Dim.Render("     Advanced → Accept Risk & Continue"))
-	lines = append(lines, theme.Dim.Render("     Connection is encrypted by Tor."))
+	lines = append(lines, theme.Dim.Render("     Connection is encrypted (Tor + TLS)."))
 	lines = append(lines, theme.Dim.Render("  4. Login with password above"))
 
 	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
@@ -332,7 +332,12 @@ func (m Model) viewLndHubNewAccount() string {
 
 	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
 	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ Account Created ")
-	footer := theme.Footer.Render("  r QR (Tor) • c QR (Clearnet) • enter done  ")
+	var footer string
+	if m.cfg.P2PMode == "hybrid" {
+		footer = theme.Footer.Render("  r QR (Tor) • c QR (Clearnet) • enter done  ")
+	} else {
+		footer = theme.Footer.Render("  r QR (Tor) • enter done  ")
+	}
 	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
 }

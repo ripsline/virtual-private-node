@@ -146,6 +146,7 @@ func configureSyncthingAuth(password string) error {
 	cfg.Options.RelaysEnabled = false
 	cfg.Options.NATEnabled = false
 	cfg.Options.ListenAddresses = []string{"tcp://127.0.0.1:22000"}
+	cfg.Options.Rest = nil
 
 	// Marshal back
 	xmlOutput, err := xml.MarshalIndent(cfg, "", "    ")
