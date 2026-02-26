@@ -3,6 +3,7 @@
 package welcome
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -13,31 +14,35 @@ import (
 )
 
 func (m Model) viewAddons(bw int) string {
-	halfW := (bw - 2) / 2
+	thirdW := (bw - 4) / 3
 	cardH := theme.BoxHeight
 
-	syncCard := m.addonSyncthingCard(halfW, cardH)
-	litCard := m.addonLITCard(halfW, cardH)
+	syncCard := m.addonSyncthingCard(thirdW, cardH)
+	litCard := m.addonLITCard(thirdW, cardH)
+	hubCard := m.addonLndHubCard(thirdW, cardH)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, syncCard, "  ", litCard)
+	return lipgloss.JoinHorizontal(lipgloss.Top, syncCard, "  ", litCard, "  ", hubCard)
 }
 
 func (m Model) addonSyncthingCard(w, h int) string {
 	var lines []string
 	lines = append(lines, theme.Header.Render("🔄 Syncthing"))
 	lines = append(lines, "")
-	lines = append(lines, theme.Dim.Render("File sync & auto-backup"))
-	lines = append(lines, theme.Dim.Render("LND channel state."))
+	lines = append(lines, theme.Dim.Render("File sync & auto-"))
+	lines = append(lines, theme.Dim.Render("backup LND channel"))
+	lines = append(lines, theme.Dim.Render("state."))
 	lines = append(lines, "")
 
 	if m.cfg.SyncthingInstalled {
 		lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Installed"))
-		lines = append(lines, theme.Label.Render("Version: ")+
-			theme.Value.Render(getSyncthingVersion()))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Version:"))
+		lines = append(lines, theme.Value.Render(getSyncthingVersion()))
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requires LND + wallet"))
+		lines = append(lines, theme.Grayed.Render("Requirements: "))
+		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+theme.Dim.Render("Not installed"))
 		lines = append(lines, "")
@@ -57,20 +62,23 @@ func (m Model) addonSyncthingCard(w, h int) string {
 
 func (m Model) addonLITCard(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Lightning.Render("⚡️ Lightning Terminal"))
+	lines = append(lines, theme.Lightning.Render("⚡️ LIT UI"))
 	lines = append(lines, "")
-	lines = append(lines, theme.Dim.Render("Browser UI for channel"))
-	lines = append(lines, theme.Dim.Render("liquidity management."))
+	lines = append(lines, theme.Dim.Render("Lightning Terminal —"))
+	lines = append(lines, theme.Dim.Render("browser channel"))
+	lines = append(lines, theme.Dim.Render("management."))
 	lines = append(lines, "")
 
 	if m.cfg.LITInstalled {
 		lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Installed"))
-		lines = append(lines, theme.Label.Render("Version: ")+
-			theme.Value.Render("v"+installer.LitVersionStr()))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Version:"))
+		lines = append(lines, theme.Value.Render("v"+installer.LitVersionStr()))
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requires LND + wallet"))
+		lines = append(lines, theme.Grayed.Render("Requirements: "))
+		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+theme.Dim.Render("Not installed"))
 		lines = append(lines, "")
@@ -80,6 +88,50 @@ func (m Model) addonLITCard(w, h int) string {
 	border := theme.NormalBorder
 	if m.addonFocus == 1 {
 		if (m.cfg.HasLND() && m.cfg.WalletExists()) || m.cfg.LITInstalled {
+			border = theme.SelectedBorder
+		} else {
+			border = theme.GrayedBorder
+		}
+	}
+	return border.Width(w).Padding(1, 2).Render(padLines(lines, h))
+}
+
+func (m Model) addonLndHubCard(w, h int) string {
+	var lines []string
+	lines = append(lines, theme.Lightning.Render("⚡️ LndHub"))
+	lines = append(lines, "")
+	lines = append(lines, theme.Dim.Render("Lightning accounts"))
+	lines = append(lines, theme.Dim.Render("for family/friends."))
+	lines = append(lines, "")
+
+	if m.cfg.LndHubInstalled {
+		activeCount := 0
+		for _, a := range m.cfg.LndHubAccounts {
+			if a.Active {
+				activeCount++
+			}
+		}
+		lines = append(lines, theme.GreenDot.Render("●")+" "+theme.Good.Render("Installed"))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Version:"))
+		lines = append(lines, theme.Value.Render("v"+installer.LndHubVersionStr()))
+		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Accounts:"))
+		lines = append(lines, theme.Value.Render(fmt.Sprintf("%d active", activeCount)))
+		lines = append(lines, "")
+		lines = append(lines, theme.Action.Render("Select to manage ▸"))
+	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+		lines = append(lines, theme.Grayed.Render("Requirement: "))
+		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
+	} else {
+		lines = append(lines, theme.RedDot.Render("●")+" "+theme.Dim.Render("Not installed"))
+		lines = append(lines, "")
+		lines = append(lines, theme.Action.Render("Select to install ▸"))
+	}
+
+	border := theme.NormalBorder
+	if m.addonFocus == 2 {
+		if (m.cfg.HasLND() && m.cfg.WalletExists()) || m.cfg.LndHubInstalled {
 			border = theme.SelectedBorder
 		} else {
 			border = theme.GrayedBorder
@@ -98,20 +150,16 @@ func (m Model) viewSyncthingDetail() string {
 	if syncOnion == "" {
 		lines = append(lines, theme.Warn.Render("Tor address not available yet."))
 	} else {
-		addr := syncOnion + ":8384"
+		fullURL := "http://" + syncOnion + ":8384"
 		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		if len(addr) > 55 {
-			lines = append(lines, "  "+theme.Mono.Render(addr[:55]+"..."))
-		} else {
-			lines = append(lines, "  "+theme.Mono.Render(addr))
-		}
+		lines = append(lines, "  "+theme.Mono.Render(fullURL))
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Label.Render("User: ")+theme.Mono.Render("admin"))
 		if m.cfg.SyncthingPassword != "" {
 			lines = append(lines, "  "+theme.Label.Render("Pass: ")+theme.Mono.Render(m.cfg.SyncthingPassword))
 		}
 		lines = append(lines, "")
-		lines = append(lines, "  "+theme.Action.Render("[u] full Tor Browser URL"))
+		lines = append(lines, "  "+theme.Action.Render("[u] full URL for copy/paste"))
 	}
 
 	lines = append(lines, "")
@@ -137,19 +185,15 @@ func (m Model) viewLITDetail() string {
 	if litOnion == "" {
 		lines = append(lines, theme.Warn.Render("Tor address not available yet."))
 	} else {
-		addr := litOnion + ":8443"
+		fullURL := "https://" + litOnion + ":8443"
 		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		if len(addr) > 55 {
-			lines = append(lines, "  "+theme.Mono.Render(addr[:55]+"..."))
-		} else {
-			lines = append(lines, "  "+theme.Mono.Render(addr))
-		}
+		lines = append(lines, "  "+theme.Mono.Render(fullURL))
 		lines = append(lines, "")
 		if m.cfg.LITPassword != "" {
 			lines = append(lines, "  "+theme.Label.Render("Password: ")+theme.Mono.Render(m.cfg.LITPassword))
 		}
 		lines = append(lines, "")
-		lines = append(lines, "  "+theme.Action.Render("[u] full Tor Browser URL"))
+		lines = append(lines, "  "+theme.Action.Render("[u] full URL for copy/paste"))
 	}
 
 	lines = append(lines, "")
@@ -157,12 +201,209 @@ func (m Model) viewLITDetail() string {
 	lines = append(lines, theme.Dim.Render("  2. Paste URL above"))
 	lines = append(lines, theme.Dim.Render("  3. Ignore security warning"))
 	lines = append(lines, theme.Dim.Render("     Advanced → Accept Risk & Continue"))
-	lines = append(lines, theme.Dim.Render("     Connection is encrypted by Tor."))
+	lines = append(lines, theme.Dim.Render("     Connection is encrypted (Tor + TLS)."))
 	lines = append(lines, theme.Dim.Render("  4. Login with password above"))
 
 	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
 	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ Lightning Terminal Details ")
 	footer := theme.Footer.Render("  u full URL • backspace back • q quit  ")
+	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
+}
+
+// ── LndHub management screens ────────────────────────────
+
+func (m Model) viewLndHubManage() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+	lines = append(lines, theme.Lightning.Render("⚡️ LndHub — Account Management"))
+	lines = append(lines, "")
+
+	accounts := m.cfg.LndHubAccounts
+	activeCount := 0
+	for _, a := range accounts {
+		if a.Active {
+			activeCount++
+		}
+	}
+	lines = append(lines, theme.Header.Render(fmt.Sprintf("  Accounts (%d active)", activeCount)))
+	lines = append(lines, "  "+theme.Dim.Render("─────────────────────────────────"))
+
+	if len(accounts) == 0 {
+		lines = append(lines, "  "+theme.Dim.Render("No accounts yet"))
+	} else {
+		viewStart := 0
+		viewSize := 8
+		if m.hubCursor >= viewStart+viewSize {
+			viewStart = m.hubCursor - viewSize + 1
+		}
+		if viewStart < 0 {
+			viewStart = 0
+		}
+		viewEnd := viewStart + viewSize
+		if viewEnd > len(accounts) {
+			viewEnd = len(accounts)
+		}
+
+		if viewStart > 0 {
+			lines = append(lines, "  "+theme.Dim.Render("  ↑ more"))
+		}
+
+		for i := viewStart; i < viewEnd; i++ {
+			a := accounts[i]
+			prefix := "  "
+			style := theme.Value
+			if m.hubCursor == i {
+				prefix = "▸ "
+				style = theme.Action
+			}
+			status := theme.GreenDot.Render("●")
+			if !a.Active {
+				status = theme.RedDot.Render("●")
+			}
+			lines = append(lines, fmt.Sprintf("  %s%s %s  %s",
+				prefix, status, style.Render(a.Label),
+				theme.Dim.Render(a.CreatedAt)))
+		}
+
+		if viewEnd < len(accounts) {
+			lines = append(lines, "  "+theme.Dim.Render("  ↓ more"))
+		}
+	}
+
+	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ LndHub Management ")
+	footer := theme.Footer.Render("  ↑↓ select • c create • enter details • x deactivate • backspace back • q quit  ")
+	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) viewLndHubCreateName() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+	lines = append(lines, theme.Header.Render("Create Account"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+theme.Label.Render("Name: ")+
+		theme.Value.Render(m.hubNameInput+"_"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+theme.Dim.Render("Letters, numbers, spaces, hyphens"))
+	lines = append(lines, "  "+theme.Dim.Render("Press enter to create"))
+
+	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ New Account ")
+	footer := theme.Footer.Render("  enter create • backspace cancel  ")
+	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) viewLndHubNewAccount() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+	lines = append(lines, theme.Success.Render("✅ Account created: "+m.hubNameInput))
+	lines = append(lines, "")
+
+	if m.lastAccount != nil {
+		hubOnion := readOnion(paths.TorLndHubHostname)
+		if hubOnion != "" {
+			lines = append(lines, "  "+theme.Label.Render("Tor:"))
+			lines = append(lines, "  "+theme.Mono.Render(hubOnion+":"+paths.LndHubExternalPort))
+		}
+		if m.cfg.P2PMode == "hybrid" && m.status != nil && m.status.publicIP != "" {
+			lines = append(lines, "  "+theme.Label.Render("Clearnet (HTTPS):"))
+			lines = append(lines, "  "+theme.Mono.Render(m.status.publicIP+":"+paths.LndHubExternalPort))
+		}
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Label.Render("Login:    ")+
+			theme.Mono.Render(m.lastAccount.Login))
+		lines = append(lines, "  "+theme.Label.Render("Password: ")+
+			theme.Mono.Render(m.lastAccount.Password))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Warning.Render("Share these credentials with "+m.hubNameInput+"."))
+		lines = append(lines, "  "+theme.Warning.Render("They will not be shown again."))
+		lines = append(lines, "")
+
+		if hubOnion != "" {
+			lines = append(lines, "  "+theme.Action.Render("[r] QR code (Tor)"))
+		}
+		if m.cfg.P2PMode == "hybrid" {
+			lines = append(lines, "  "+theme.Action.Render("[c] QR code (Clearnet)"))
+		}
+	}
+
+	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ Account Created ")
+	var footer string
+	if m.cfg.P2PMode == "hybrid" {
+		footer = theme.Footer.Render("  r QR (Tor) • c QR (Clearnet) • enter done  ")
+	} else {
+		footer = theme.Footer.Render("  r QR (Tor) • enter done  ")
+	}
+	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) viewLndHubAccountDetail() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+
+	if m.hubCursor >= len(m.cfg.LndHubAccounts) {
+		lines = append(lines, theme.Warn.Render("Account not found"))
+	} else {
+		acct := m.cfg.LndHubAccounts[m.hubCursor]
+		lines = append(lines, theme.Header.Render("  "+acct.Label))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Label.Render("Login:   ")+
+			theme.Mono.Render(acct.Login))
+		lines = append(lines, "  "+theme.Label.Render("Created: ")+
+			theme.Value.Render(acct.CreatedAt))
+
+		if acct.Active {
+			lines = append(lines, "  "+theme.Label.Render("Status:  ")+
+				theme.Success.Render("active"))
+		} else {
+			lines = append(lines, "  "+theme.Label.Render("Status:  ")+
+				theme.Warning.Render("deactivated"))
+			if acct.DeactivatedAt != "" {
+				lines = append(lines, "  "+theme.Label.Render("Deactivated: ")+
+					theme.Value.Render(acct.DeactivatedAt))
+			}
+			if acct.BalanceOnDeactivate != "" && acct.BalanceOnDeactivate != "0" && acct.BalanceOnDeactivate != "unknown" {
+				lines = append(lines, "")
+				lines = append(lines, "  "+theme.Warning.Render(
+					"Had "+acct.BalanceOnDeactivate+" sats at deactivation."))
+				lines = append(lines, "  "+theme.Warning.Render(
+					"Send this amount to their new account."))
+			}
+		}
+	}
+
+	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ Account Details ")
+	footer := theme.Footer.Render("  backspace back • q quit  ")
+	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) viewLndHubDeactivateConfirm() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+
+	if m.hubCursor < len(m.cfg.LndHubAccounts) {
+		acct := m.cfg.LndHubAccounts[m.hubCursor]
+		lines = append(lines, theme.Warning.Render("Deactivate "+acct.Label+"?"))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Value.Render("This will:"))
+		lines = append(lines, "  "+theme.Value.Render("• Immediately block their wallet access"))
+		lines = append(lines, "  "+theme.Value.Render("• Record their balance at deactivation"))
+		lines = append(lines, "  "+theme.Value.Render("• Their login credentials stop working"))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Dim.Render("Create them a new account afterward"))
+		lines = append(lines, "  "+theme.Dim.Render("and send their old balance to it."))
+	}
+
+	box := theme.Box.Width(bw).Padding(1, 2).Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).Render(" ⚡️ Deactivate Account ")
+	footer := theme.Footer.Render("  y confirm • n cancel  ")
 	full := lipgloss.JoinVertical(lipgloss.Center, "", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, full)
 }

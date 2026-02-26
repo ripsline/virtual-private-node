@@ -24,6 +24,16 @@ func (m Model) View() string {
 		return m.viewSyncthingDetail()
 	case svLITDetail:
 		return m.viewLITDetail()
+	case svLndHubManage:
+		return m.viewLndHubManage()
+	case svLndHubCreateName:
+		return m.viewLndHubCreateName()
+	case svLndHubCreateAccount:
+		return m.viewLndHubNewAccount()
+	case svLndHubAccountDetail:
+		return m.viewLndHubAccountDetail()
+	case svLndHubDeactivateConfirm:
+		return m.viewLndHubDeactivateConfirm()
 	case svQR:
 		return m.viewQR()
 	case svFullURL:

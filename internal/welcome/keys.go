@@ -3,10 +3,13 @@
 package welcome
 
 import (
-	"os/exec"
+	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/logger"
 	"github.com/ripsline/virtual-private-node/internal/paths"
 	"github.com/ripsline/virtual-private-node/internal/system"
 )
@@ -27,17 +30,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case latestVersionMsg:
 		m.latestVersion = string(msg)
 		return m, nil
+	case lndhubAccountCreatedMsg:
+		if msg.err != nil {
+			logger.TUI("Warning: failed to create LndHub account: %v", msg.err)
+			m.subview = svLndHubManage
+			return m, nil
+		}
+		if msg.account != nil {
+			m.lastAccount = msg.account
+			m.cfg.LndHubAccounts = append(m.cfg.LndHubAccounts, config.LndHubAccount{
+				Label:     m.hubNameInput,
+				Login:     msg.account.Login,
+				CreatedAt: time.Now().Format("2006-01-02"),
+				Active:    true,
+			})
+			m.saveCfg()
+			m.subview = svLndHubCreateAccount
+		}
+		return m, nil
+	case lndhubDeactivatedMsg:
+		if m.hubCursor < len(m.cfg.LndHubAccounts) {
+			acct := &m.cfg.LndHubAccounts[m.hubCursor]
+			if msg.err != nil {
+				logger.TUI("Warning: deactivate failed: %v", msg.err)
+			} else {
+				acct.Active = false
+				acct.DeactivatedAt = time.Now().Format("2006-01-02")
+				acct.BalanceOnDeactivate = msg.balance
+				m.saveCfg()
+				logger.TUI("Deactivated account %s (balance: %s sats)", acct.Label, msg.balance)
+			}
+		}
+		m.subview = svLndHubManage
+		return m, nil
 	case tickMsg:
 		if m.fetchInFlight {
-			return m, tickEvery(5e9)
+			return m, tickEvery(5 * time.Second)
 		}
 		m.fetchInFlight = true
 		return m, tea.Batch(
 			fetchStatus(m.cfg),
-			tickEvery(5e9),
+			tickEvery(5*time.Second),
 		)
 	}
 	return m, nil
+}
+
+// isAllowedHubNameChar returns true for letters, numbers, spaces, and hyphens.
+func isAllowedHubNameChar(key string) bool {
+	if len(key) != 1 {
+		return false
+	}
+	c := key[0]
+	return (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') ||
+		c == ' ' || c == '-'
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -45,22 +93,67 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Subviews
 	if m.subview != svNone {
+		// Text input for name screen
+		if m.subview == svLndHubCreateName {
+			switch key {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "backspace":
+				if len(m.hubNameInput) > 0 {
+					m.hubNameInput = m.hubNameInput[:len(m.hubNameInput)-1]
+				} else {
+					m.subview = svLndHubManage
+				}
+				return m, nil
+			case "enter":
+				if m.hubNameInput != "" {
+					return m, createLndHubAccountCmd(m.cfg.LndHubAdminToken)
+				}
+				return m, nil
+			default:
+				if isAllowedHubNameChar(key) && len(m.hubNameInput) < 30 {
+					m.hubNameInput += key
+				}
+				return m, nil
+			}
+		}
+
 		switch key {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "backspace":
 			switch m.subview {
 			case svQR:
-				m.subview = svZeus
+				if m.qrLabel != "" {
+					m.subview = svLndHubCreateAccount
+				} else {
+					m.subview = svZeus
+				}
+				m.qrLabel = ""
 			case svFullURL:
-				if m.urlTarget != "" {
+				if m.urlReturnTo != svNone {
+					m.subview = m.urlReturnTo
+					m.urlReturnTo = svNone
+				} else {
 					m.subview = svNone
 				}
-				m.subview = svNone
 			case svSyncthingDetail:
 				m.subview = svNone
 			case svLITDetail:
 				m.subview = svNone
+			case svLndHubManage:
+				m.subview = svNone
+			case svLndHubCreateName:
+				m.hubNameInput = ""
+				m.subview = svLndHubManage
+			case svLndHubCreateAccount:
+				m.lastAccount = nil
+				m.hubNameInput = ""
+				m.subview = svLndHubManage
+			case svLndHubAccountDetail:
+				m.subview = svLndHubManage
+			case svLndHubDeactivateConfirm:
+				m.subview = svLndHubManage
 			default:
 				m.subview = svNone
 			}
@@ -73,13 +166,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "r":
 			if m.subview == svZeus {
 				m.qrMode = "tor"
+				m.qrLabel = ""
 				m.subview = svQR
+				return m, nil
+			}
+			if m.subview == svLndHubCreateAccount && m.lastAccount != nil {
+				hubOnion := readOnion(paths.TorLndHubHostname)
+				if hubOnion != "" {
+					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@http://%s:%s",
+						m.lastAccount.Login, m.lastAccount.Password,
+						hubOnion, paths.LndHubExternalPort)
+					m.qrLabel = m.hubNameInput + " — Tor"
+					m.subview = svQR
+				}
 				return m, nil
 			}
 		case "c":
 			if m.subview == svZeus && m.cfg.P2PMode == "hybrid" {
 				m.qrMode = "clearnet"
+				m.qrLabel = ""
 				m.subview = svQR
+				return m, nil
+			}
+			if m.subview == svLndHubManage {
+				m.hubNameInput = ""
+				m.subview = svLndHubCreateName
+				return m, nil
+			}
+			if m.subview == svLndHubCreateAccount && m.cfg.P2PMode == "hybrid" && m.lastAccount != nil {
+				ip := ""
+				if m.status != nil {
+					ip = m.status.publicIP
+				}
+				if ip != "" {
+					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@https://%s:%s",
+						m.lastAccount.Login, m.lastAccount.Password,
+						ip, paths.LndHubExternalPort)
+					m.qrLabel = m.hubNameInput + " — Clearnet"
+					m.subview = svQR
+				}
 				return m, nil
 			}
 		case "p":
@@ -92,6 +217,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				syncOnion := readOnion(paths.TorSyncthingHostname)
 				if syncOnion != "" {
 					m.urlTarget = "http://" + syncOnion + ":8384"
+					m.urlReturnTo = svSyncthingDetail
 					m.subview = svFullURL
 				}
 				return m, nil
@@ -100,8 +226,59 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				litOnion := readOnion(paths.TorLNDLITHostname)
 				if litOnion != "" {
 					m.urlTarget = "https://" + litOnion + ":8443"
+					m.urlReturnTo = svLITDetail
 					m.subview = svFullURL
 				}
+				return m, nil
+			}
+			if m.subview == svLndHubManage {
+				hubOnion := readOnion(paths.TorLndHubHostname)
+				if hubOnion != "" {
+					m.urlTarget = "http://" + hubOnion + ":" + paths.LndHubExternalPort
+					m.urlReturnTo = svLndHubManage
+					m.subview = svFullURL
+				}
+				return m, nil
+			}
+		case "x":
+			if m.subview == svLndHubManage && len(m.cfg.LndHubAccounts) > 0 {
+				if m.hubCursor < len(m.cfg.LndHubAccounts) && m.cfg.LndHubAccounts[m.hubCursor].Active {
+					m.subview = svLndHubDeactivateConfirm
+				}
+				return m, nil
+			}
+		case "y":
+			if m.subview == svLndHubDeactivateConfirm {
+				if m.hubCursor < len(m.cfg.LndHubAccounts) {
+					login := m.cfg.LndHubAccounts[m.hubCursor].Login
+					return m, deactivateLndHubAccountCmd(login)
+				}
+				return m, nil
+			}
+		case "n":
+			if m.subview == svLndHubDeactivateConfirm {
+				m.subview = svLndHubManage
+				return m, nil
+			}
+		case "enter":
+			if m.subview == svLndHubManage && len(m.cfg.LndHubAccounts) > 0 {
+				m.subview = svLndHubAccountDetail
+				return m, nil
+			}
+			if m.subview == svLndHubCreateAccount {
+				m.lastAccount = nil
+				m.hubNameInput = ""
+				m.subview = svLndHubManage
+				return m, nil
+			}
+		case "up", "k":
+			if m.subview == svLndHubManage && m.hubCursor > 0 {
+				m.hubCursor--
+				return m, nil
+			}
+		case "down", "j":
+			if m.subview == svLndHubManage && m.hubCursor < len(m.cfg.LndHubAccounts)-1 {
+				m.hubCursor++
 				return m, nil
 			}
 		}
@@ -199,7 +376,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 				action := m.svcConfirm
 				m.svcConfirm = ""
 				return m, func() tea.Msg {
-					exec.Command("sudo", "systemctl", action, svc).Run()
+					system.SudoRun("systemctl", action, svc)
 					return svcActionDoneMsg{}
 				}
 			default:
@@ -242,7 +419,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 				}
 				if action == "reboot" {
 					return m, func() tea.Msg {
-						system.Run("reboot")
+						system.SudoRun("reboot")
 						return svcActionDoneMsg{}
 					}
 				}
@@ -268,9 +445,10 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 func (m Model) navUp() Model {
 	switch m.activeTab {
 	case tabDashboard:
-		if m.dashCard == cardBitcoin {
+		switch m.dashCard {
+		case cardBitcoin:
 			m.dashCard = cardServices
-		} else if m.dashCard == cardLightning {
+		case cardLightning:
 			m.dashCard = cardSystem
 		}
 	}
@@ -280,9 +458,10 @@ func (m Model) navUp() Model {
 func (m Model) navDown() Model {
 	switch m.activeTab {
 	case tabDashboard:
-		if m.dashCard == cardServices {
+		switch m.dashCard {
+		case cardServices:
 			m.dashCard = cardBitcoin
-		} else if m.dashCard == cardSystem {
+		case cardSystem:
 			m.dashCard = cardLightning
 		}
 	}
@@ -292,15 +471,18 @@ func (m Model) navDown() Model {
 func (m Model) navLeft() Model {
 	switch m.activeTab {
 	case tabDashboard:
-		if m.dashCard == cardSystem {
+		switch m.dashCard {
+		case cardSystem:
 			m.dashCard = cardServices
-		} else if m.dashCard == cardLightning {
+		case cardLightning:
 			m.dashCard = cardBitcoin
 		}
 	case tabPairing:
 		// Single card, no navigation needed
 	case tabAddons:
-		m.addonFocus = 0
+		if m.addonFocus > 0 {
+			m.addonFocus--
+		}
 	case tabSettings:
 		// Single card, no navigation needed
 	}
@@ -310,15 +492,18 @@ func (m Model) navLeft() Model {
 func (m Model) navRight() Model {
 	switch m.activeTab {
 	case tabDashboard:
-		if m.dashCard == cardServices {
+		switch m.dashCard {
+		case cardServices:
 			m.dashCard = cardSystem
-		} else if m.dashCard == cardBitcoin {
+		case cardBitcoin:
 			m.dashCard = cardLightning
 		}
 	case tabPairing:
 		// Single card, no navigation needed
 	case tabAddons:
-		m.addonFocus = 1
+		if m.addonFocus < 2 {
+			m.addonFocus++
+		}
 	case tabSettings:
 		// Single card, no navigation needed
 	}
@@ -381,6 +566,17 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 		}
 		m.shellAction = svLITInstall
 		return m, tea.Quit
+	case 2: // LndHub
+		if m.cfg.LndHubInstalled {
+			m.hubCursor = 0
+			m.subview = svLndHubManage
+			return m, nil
+		}
+		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+			return m, nil
+		}
+		m.shellAction = svLndHubInstall
+		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -396,6 +592,12 @@ func (m Model) svcCount() int {
 	if m.cfg.SyncthingInstalled {
 		n++
 	}
+	if m.cfg.LndHubInstalled {
+		n++
+	}
+	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
+		n++
+	}
 	return n
 }
 
@@ -409,6 +611,12 @@ func (m Model) svcName(i int) string {
 	}
 	if m.cfg.SyncthingInstalled {
 		names = append(names, "syncthing")
+	}
+	if m.cfg.LndHubInstalled {
+		names = append(names, "lndhub")
+	}
+	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
+		names = append(names, "lndhub-proxy")
 	}
 	if i < len(names) {
 		return names[i]

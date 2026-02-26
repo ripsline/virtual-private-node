@@ -71,6 +71,14 @@ HiddenServicePort 22000 127.0.0.1:22000
 `)
 	}
 
+	if cfg.LndHubInstalled {
+		b.WriteString(fmt.Sprintf(`
+# LndHub.go API (Lightning accounts over Tor)
+HiddenServiceDir /var/lib/tor/lndhub/
+HiddenServicePort %s 127.0.0.1:%s
+`, paths.LndHubExternalPort, paths.LndHubInternalPort))
+	}
+
 	return b.String()
 }
 

@@ -17,19 +17,32 @@ const (
 )
 
 type AppConfig struct {
-	InstallComplete    bool   `json:"install_complete"`
-	InstallVersion     string `json:"install_version,omitempty"`
-	Network            string `json:"network"`
-	Components         string `json:"components"`
-	PruneSize          int    `json:"prune_size"`
-	P2PMode            string `json:"p2p_mode"`
-	AutoUnlock         bool   `json:"auto_unlock"`
-	LNDInstalled       bool   `json:"lnd_installed"`
-	WalletCreated      bool   `json:"wallet_created"`
-	LITInstalled       bool   `json:"lit_installed"`
-	LITPassword        string `json:"lit_password,omitempty"`
-	SyncthingInstalled bool   `json:"syncthing_installed"`
-	SyncthingPassword  string `json:"syncthing_password,omitempty"`
+	InstallComplete    bool            `json:"install_complete"`
+	InstallVersion     string          `json:"install_version,omitempty"`
+	Network            string          `json:"network"`
+	Components         string          `json:"components"`
+	PruneSize          int             `json:"prune_size"`
+	P2PMode            string          `json:"p2p_mode"`
+	AutoUnlock         bool            `json:"auto_unlock"`
+	LNDInstalled       bool            `json:"lnd_installed"`
+	WalletCreated      bool            `json:"wallet_created"`
+	LITInstalled       bool            `json:"lit_installed"`
+	LITPassword        string          `json:"lit_password,omitempty"`
+	SyncthingInstalled bool            `json:"syncthing_installed"`
+	SyncthingPassword  string          `json:"syncthing_password,omitempty"`
+	LndHubInstalled    bool            `json:"lndhub_installed"`
+	LndHubAdminToken   string          `json:"lndhub_admin_token,omitempty"`
+	LndHubDBPassword   string          `json:"lndhub_db_password,omitempty"`
+	LndHubAccounts     []LndHubAccount `json:"lndhub_accounts,omitempty"`
+}
+
+type LndHubAccount struct {
+	Label               string `json:"label"`
+	Login               string `json:"login"`
+	CreatedAt           string `json:"created_at"`
+	Active              bool   `json:"active"`
+	DeactivatedAt       string `json:"deactivated_at,omitempty"`
+	BalanceOnDeactivate string `json:"balance_on_deactivate,omitempty"`
 }
 
 // Store handles reading/writing config to disk.
@@ -85,6 +98,15 @@ func Load() (*AppConfig, error) {
 
 func Save(cfg *AppConfig) error {
 	return DefaultStore().Save(cfg)
+}
+
+// SaveTo saves config using a specific store.
+// Used by the TUI to support injectable stores for testing.
+func SaveTo(store *Store, cfg *AppConfig) error {
+	if store == nil {
+		return Save(cfg)
+	}
+	return store.Save(cfg)
 }
 
 func (c *AppConfig) HasLND() bool {

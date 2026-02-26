@@ -87,15 +87,14 @@ func importBitcoinCoreKeys() error {
 			continue
 		}
 
-		cmd := exec.Command("gpg", "--batch", "--import", keyFile)
-		output, _ := cmd.CombinedOutput()
+		system.RunCombinedOutput("gpg", "--batch", "--import", keyFile)
 		os.Remove(keyFile)
 
 		if gpgHasFingerprint(signer.fingerprint) {
 			imported++
 			logger.Verify("OK %s: imported (fingerprint %s)", signer.name, signer.fingerprint)
 		} else {
-			logger.Verify("SKIP %s: fingerprint not found after import: %s", signer.name, string(output))
+			logger.Verify("SKIP %s: fingerprint not found after import", signer.name)
 		}
 	}
 
@@ -116,11 +115,10 @@ func importLNDKey() error {
 	}
 	defer os.Remove(keyFile)
 
-	cmd := exec.Command("gpg", "--batch", "--import", keyFile)
-	output, err := cmd.CombinedOutput()
+	output, err := system.RunCombinedOutput("gpg", "--batch", "--import", keyFile)
 	if err != nil {
-		logger.Verify("FAIL: import LND key: %s", string(output))
-		return fmt.Errorf("import LND key: %s: %s", err, output)
+		logger.Verify("FAIL: import LND key: %s", output)
+		return fmt.Errorf("import LND key: %w: %s", err, output)
 	}
 
 	if !gpgHasFingerprint(lndSigner.fingerprint) {
@@ -134,12 +132,11 @@ func importLNDKey() error {
 
 func importLITKey() error {
 	logger.Verify("--- LIT key import ---")
-	cmd := exec.Command("gpg", "--batch", "--keyserver",
+	output, err := system.RunCombinedOutput("gpg", "--batch", "--keyserver",
 		"hkps://keyserver.ubuntu.com", "--recv-keys", litSigner.keyID)
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		logger.Verify("FAIL: import LIT key: %s", string(output))
-		return fmt.Errorf("import LIT key: %s: %s", err, output)
+		logger.Verify("FAIL: import LIT key: %s", output)
+		return fmt.Errorf("import LIT key: %w: %s", err, output)
 	}
 
 	if !gpgHasFingerprint(litSigner.fingerprint) {
@@ -167,10 +164,8 @@ func verifyBitcoinCoreSigs(minValid int) error {
 		return fmt.Errorf("SHA256SUMS.asc not found")
 	}
 
-	cmd := exec.Command("gpg", "--batch", "--verify",
+	outputStr, _ := system.RunCombinedOutput("gpg", "--batch", "--verify",
 		"--status-fd", "1", sigFile, sumsFile)
-	output, _ := cmd.CombinedOutput()
-	outputStr := string(output)
 
 	validCount := ParseGoodSigCount(outputStr)
 	badCount := ParseBadSigCount(outputStr)
@@ -223,17 +218,14 @@ func verifyLNDSig(version string) error {
 	}
 	defer os.Remove(sigFile)
 
-	cmd := exec.Command("gpg", "--batch", "--verify",
+	outputStr, _ := system.RunCombinedOutput("gpg", "--batch", "--verify",
 		"--status-fd", "1", sigFile, manifestFile)
-	output, _ := cmd.CombinedOutput()
-	outputStr := string(output)
 
 	if !strings.Contains(outputStr, "GOODSIG") {
 		logger.Verify("FAIL: LND signature invalid: %s", outputStr)
 		return fmt.Errorf("LND signature verification failed")
 	}
 
-	// Log the GOODSIG line
 	for _, line := range strings.Split(outputStr, "\n") {
 		if strings.Contains(line, "GOODSIG") {
 			logger.Verify("GOODSIG: %s", strings.TrimSpace(line))
@@ -263,10 +255,8 @@ func verifyLITSig(version string) error {
 	}
 	defer os.Remove(sigFile)
 
-	cmd := exec.Command("gpg", "--batch", "--verify",
+	outputStr, _ := system.RunCombinedOutput("gpg", "--batch", "--verify",
 		"--status-fd", "1", sigFile, manifestFile)
-	output, _ := cmd.CombinedOutput()
-	outputStr := string(output)
 
 	if !strings.Contains(outputStr, "GOODSIG") {
 		logger.Verify("FAIL: LIT signature invalid: %s", outputStr)
@@ -285,48 +275,54 @@ func verifyLITSig(version string) error {
 
 // ── Checksum verification ────────────────────────────────
 
-func verifyBitcoin(version string) error {
+func verifyBitcoin() error {
 	logger.Verify("--- Bitcoin Core checksum verification ---")
+	// exec.Command used directly because sha256sum --check needs
+	// working directory set to /tmp where the tarball was downloaded.
 	cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "SHA256SUMS")
 	cmd.Dir = "/tmp"
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Verify("FAIL: Bitcoin Core checksum: %s", string(output))
-		return fmt.Errorf("checksum failed: %s: %s", err, output)
+		return fmt.Errorf("checksum failed: %w: %s", err, output)
 	}
 	logger.Verify("OK Bitcoin Core checksum: %s", strings.TrimSpace(string(output)))
 	return nil
 }
 
-func verifyLND(version string) error {
+func verifyLND() error {
 	logger.Verify("--- LND checksum verification ---")
 	if _, err := os.Stat("/tmp/manifest.txt"); err != nil {
 		logger.Verify("FAIL: LND manifest not found")
 		return fmt.Errorf("LND manifest not found")
 	}
+	// exec.Command used directly because sha256sum --check needs
+	// working directory set to /tmp where the tarball was downloaded.
 	cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "manifest.txt")
 	cmd.Dir = "/tmp"
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Verify("FAIL: LND checksum: %s", string(output))
-		return fmt.Errorf("checksum failed: %s: %s", err, output)
+		return fmt.Errorf("checksum failed: %w: %s", err, output)
 	}
 	logger.Verify("OK LND checksum: %s", strings.TrimSpace(string(output)))
 	return nil
 }
 
-func verifyLIT(version string) error {
+func verifyLIT() error {
 	logger.Verify("--- LIT checksum verification ---")
 	if _, err := os.Stat("/tmp/lit-manifest.txt"); err != nil {
 		logger.Verify("FAIL: LIT manifest not found")
 		return fmt.Errorf("LIT manifest not found")
 	}
+	// exec.Command used directly because sha256sum --check needs
+	// working directory set to /tmp where the tarball was downloaded.
 	cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "lit-manifest.txt")
 	cmd.Dir = "/tmp"
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Verify("FAIL: LIT checksum: %s", string(output))
-		return fmt.Errorf("checksum failed: %s: %s", err, output)
+		return fmt.Errorf("checksum failed: %w: %s", err, output)
 	}
 	logger.Verify("OK LIT checksum: %s", strings.TrimSpace(string(output)))
 	return nil
@@ -335,13 +331,12 @@ func verifyLIT(version string) error {
 // ── Helpers ──────────────────────────────────────────────
 
 func gpgHasFingerprint(fingerprint string) bool {
-	cmd := exec.Command("gpg", "--batch", "--list-keys",
+	output, err := system.RunCombinedOutput("gpg", "--batch", "--list-keys",
 		"--with-colons", fingerprint)
-	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(output), fingerprint)
+	return strings.Contains(output, fingerprint)
 }
 
 func downloadBitcoinSigFile(version string) error {

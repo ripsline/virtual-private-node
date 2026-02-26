@@ -31,12 +31,18 @@ const (
 	svZeus
 	svSyncthingDetail
 	svLITDetail
+	svLndHubManage
+	svLndHubCreateName
+	svLndHubCreateAccount
+	svLndHubAccountDetail
+	svLndHubDeactivateConfirm
 	svQR
 	svFullURL
 	svWalletCreate
 	svLNDInstall
 	svLITInstall
 	svSyncthingInstall
+	svLndHubInstall
 	svSystemUpdate
 	svLogView
 	svMacaroonShell
@@ -59,6 +65,16 @@ type svcActionDoneMsg struct{}
 type tickMsg time.Time
 type latestVersionMsg string
 
+type lndhubAccountCreatedMsg struct {
+	account *installer.LndHubAccount
+	err     error
+}
+
+type lndhubDeactivatedMsg struct {
+	balance string
+	err     error
+}
+
 type statusMsg struct {
 	services                     map[string]bool
 	diskTotal, diskUsed, diskPct string
@@ -80,27 +96,34 @@ type statusMsg struct {
 // ── Model ────────────────────────────────────────────────
 
 type Model struct {
-	cfg           *config.AppConfig
-	version       string
-	activeTab     wTab
-	subview       wSubview
-	dashCard      cardPos
-	cardActive    bool
-	svcCursor     int
-	svcConfirm    string
-	sysConfirm    string
-	logSvcName    string
-	addonFocus    int
-	urlTarget     string
-	qrMode        string
-	width         int
-	height        int
-	shellAction   wSubview
-	status        *statusMsg
-	settingsFocus int
-	latestVersion string
-	updateConfirm bool
-	fetchInFlight bool
+	cfg                  *config.AppConfig
+	cfgStore             *config.Store // nil = use default store
+	version              string
+	activeTab            wTab
+	subview              wSubview
+	dashCard             cardPos
+	cardActive           bool
+	svcCursor            int
+	svcConfirm           string
+	sysConfirm           string
+	logSvcName           string
+	addonFocus           int
+	urlTarget            string
+	qrMode               string
+	qrLabel              string
+	urlReturnTo          wSubview
+	width                int
+	height               int
+	shellAction          wSubview
+	status               *statusMsg
+	settingsFocus        int
+	latestVersion        string
+	updateConfirm        bool
+	fetchInFlight        bool
+	lastAccount          *installer.LndHubAccount
+	hubCursor            int
+	hubNameInput         string
+	hubDeactivateBalance string
 }
 
 func NewModel(cfg *config.AppConfig, version string) Model {
@@ -110,6 +133,18 @@ func NewModel(cfg *config.AppConfig, version string) Model {
 		dashCard:      cardServices,
 		fetchInFlight: true,
 	}
+}
+
+// NewTestModel creates a model with an isolated config store for testing.
+func NewTestModel(cfg *config.AppConfig, version string, store *config.Store) Model {
+	m := NewModel(cfg, version)
+	m.cfgStore = store
+	return m
+}
+
+// saveCfg saves config using the model's store (injectable for tests).
+func (m Model) saveCfg() {
+	config.SaveTo(m.cfgStore, m.cfg)
 }
 
 // Show launches the welcome TUI. Re-launches after shell actions.
@@ -123,6 +158,14 @@ func Show(cfg *config.AppConfig, version string) {
 		switch final.shellAction {
 		case svMacaroonShell:
 			printMacaroon(cfg)
+			continue
+		case svLndHubInstall:
+			installer.RunLndHubInstall(cfg)
+			if u, e := config.Load(); e == nil {
+				cfg = u
+			}
+			m = NewModel(cfg, version)
+			m.activeTab = tabAddons
 			continue
 		case svWalletCreate:
 			installer.RunWalletCreation(cfg)
@@ -144,12 +187,16 @@ func Show(cfg *config.AppConfig, version string) {
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
+			m = NewModel(cfg, version)
+			m.activeTab = tabAddons
 			continue
 		case svSyncthingInstall:
 			installer.RunSyncthingInstall(cfg)
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
+			m = NewModel(cfg, version)
+			m.activeTab = tabAddons
 			continue
 		case svSystemUpdate:
 			runSystemUpdate()
@@ -190,5 +237,20 @@ func fetchLatestVersion() tea.Cmd {
 	return func() tea.Msg {
 		v := installer.CheckLatestVersion()
 		return latestVersionMsg(v)
+	}
+}
+
+func createLndHubAccountCmd(adminToken string) tea.Cmd {
+	return func() tea.Msg {
+		account, err := installer.CreateLndHubAccount(adminToken)
+		return lndhubAccountCreatedMsg{account: account, err: err}
+	}
+}
+
+func deactivateLndHubAccountCmd(login string) tea.Cmd {
+	return func() tea.Msg {
+		balance, _ := installer.GetUserBalance(login)
+		err := installer.DeactivateUser(login)
+		return lndhubDeactivatedMsg{balance: balance, err: err}
 	}
 }

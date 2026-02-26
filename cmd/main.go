@@ -8,6 +8,7 @@ import (
 
 	"github.com/ripsline/virtual-private-node/internal/config"
 	"github.com/ripsline/virtual-private-node/internal/installer"
+	"github.com/ripsline/virtual-private-node/internal/proxy"
 	"github.com/ripsline/virtual-private-node/internal/welcome"
 )
 
@@ -15,6 +16,15 @@ var version = "dev"
 
 func main() {
 	installer.SetVersion(version)
+
+	// Subcommand: rlvpn proxy
+	if len(os.Args) > 1 && os.Args[1] == "proxy" {
+		if err := proxy.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "proxy: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if !installer.NeedsInstall() {
 		cfg, err := config.Load()

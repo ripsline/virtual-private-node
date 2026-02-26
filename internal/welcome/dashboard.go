@@ -35,7 +35,7 @@ func (m Model) getBorder(pos cardPos) lipgloss.Style {
 
 func (m Model) cardServicesView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("Services"))
+	lines = append(lines, theme.Header.Render("🚦 Services"))
 	lines = append(lines, "")
 
 	names := []string{"tor", "bitcoind"}
@@ -47,6 +47,12 @@ func (m Model) cardServicesView(w, h int) string {
 	}
 	if m.cfg.SyncthingInstalled {
 		names = append(names, "syncthing")
+	}
+	if m.cfg.LndHubInstalled {
+		names = append(names, "lndhub")
+	}
+	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
+		names = append(names, "lndhub-proxy")
 	}
 
 	for i, name := range names {
@@ -82,7 +88,7 @@ func (m Model) cardServicesView(w, h int) string {
 
 func (m Model) cardSystemView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("System"))
+	lines = append(lines, theme.Header.Render("💾 System"))
 	lines = append(lines, "")
 
 	if m.status != nil {
@@ -110,13 +116,13 @@ func (m Model) cardSystemView(w, h int) string {
 		} else {
 			lines = append(lines, theme.Action.Render("[u]pdate packages"))
 			if m.status != nil && m.status.rebootRequired {
-				lines = append(lines, theme.Warning.Render("⚠ Reboot required"))
+				lines = append(lines, theme.Warning.Render("⚠️ Reboot required"))
 				lines = append(lines, theme.Action.Render("[r]eboot"))
 			}
 		}
 	} else if m.status != nil && m.status.rebootRequired {
 		lines = append(lines, "")
-		lines = append(lines, theme.Warning.Render("⚠ Reboot required"))
+		lines = append(lines, theme.Warning.Render("⚠️ Reboot required"))
 	}
 
 	return m.getBorder(cardSystem).Width(w).
@@ -188,7 +194,6 @@ func (m Model) cardLightningView(w, h int) string {
 		Padding(0, 1).Render(padLines(lines, h))
 }
 
-// viewLightning is the detail subview for Lightning
 func (m Model) viewLightning() string {
 	bw := min(m.width-4, theme.ContentWidth)
 	var lines []string

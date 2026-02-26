@@ -3,6 +3,8 @@
 package welcome
 
 import (
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,7 +29,25 @@ func testModelFullStack() Model {
 	cfg.LNDInstalled = true
 	cfg.LITInstalled = true
 	cfg.SyncthingInstalled = true
+	cfg.LndHubInstalled = true
 	return NewModel(cfg, "0.0.0-test")
+}
+
+// testStore creates an isolated config store in a temp directory.
+func testStore(t *testing.T) *config.Store {
+	t.Helper()
+	dir := t.TempDir()
+	return &config.Store{
+		Dir:  dir,
+		Path: filepath.Join(dir, "config.json"),
+	}
+}
+
+// testModelWithStore creates a model with an isolated config store.
+func testModelWithStore(t *testing.T, cfg *config.AppConfig) Model {
+	t.Helper()
+	store := testStore(t)
+	return NewTestModel(cfg, "0.0.0-test", store)
 }
 
 // ── Tab Navigation ───────────────────────────────────────
@@ -54,7 +74,6 @@ func TestTabForward(t *testing.T) {
 	m.width = 80
 	m.height = 24
 
-	// Tab through all 4 tabs
 	expected := []wTab{tabPairing, tabAddons, tabSettings, tabDashboard}
 	for _, want := range expected {
 		newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -109,28 +128,24 @@ func TestDashboardCardNavigation(t *testing.T) {
 	m.activeTab = tabDashboard
 	m.dashCard = cardServices
 
-	// Right → System
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
 	m = newM.(Model)
 	if m.dashCard != cardSystem {
 		t.Errorf("right from services: got %d, want %d (system)", m.dashCard, cardSystem)
 	}
 
-	// Down → Lightning
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	m = newM.(Model)
 	if m.dashCard != cardLightning {
 		t.Errorf("down from system: got %d, want %d (lightning)", m.dashCard, cardLightning)
 	}
 
-	// Left → Bitcoin
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
 	m = newM.(Model)
 	if m.dashCard != cardBitcoin {
 		t.Errorf("left from lightning: got %d, want %d (bitcoin)", m.dashCard, cardBitcoin)
 	}
 
-	// Up → Services
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
 	m = newM.(Model)
 	if m.dashCard != cardServices {
@@ -189,7 +204,7 @@ func TestBackspaceDeactivatesCard(t *testing.T) {
 // ── Lightning Card Actions ───────────────────────────────
 
 func TestLightningCardInstallLND(t *testing.T) {
-	m := testModel() // no LND installed
+	m := testModel()
 	m.width = 80
 	m.height = 24
 	m.activeTab = tabDashboard
@@ -210,8 +225,6 @@ func TestLightningCardWithLNDShowsDetail(t *testing.T) {
 	m.activeTab = tabDashboard
 	m.dashCard = cardLightning
 
-	// LND installed but no wallet — should trigger wallet creation
-	// WalletExists() checks for a file that won't exist in tests
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
 	if m.shellAction != svWalletCreate {
@@ -235,16 +248,62 @@ func TestSubviewBackspace(t *testing.T) {
 	}
 }
 
-func TestQRBackspacGoesToZeus(t *testing.T) {
+func TestFullURLBackspaceReturnsToOrigin(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 24
+	m.subview = svFullURL
+	m.urlReturnTo = svSyncthingDetail
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svSyncthingDetail {
+		t.Errorf("backspace from full URL: got %d, want %d (syncthing detail)",
+			m.subview, svSyncthingDetail)
+	}
+}
+
+func TestFullURLBackspaceNoReturnTo(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 24
+	m.subview = svFullURL
+	m.urlReturnTo = svNone
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svNone {
+		t.Errorf("backspace from full URL no return: got %d, want %d (none)",
+			m.subview, svNone)
+	}
+}
+
+func TestQRBackspaceGoesToZeus(t *testing.T) {
 	m := testModel()
 	m.width = 80
 	m.height = 24
 	m.subview = svQR
+	m.qrLabel = ""
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m = newM.(Model)
 	if m.subview != svZeus {
 		t.Errorf("backspace from QR: got %d, want %d (zeus)", m.subview, svZeus)
+	}
+}
+
+func TestQRBackspaceGoesToLndHubNewAccount(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 24
+	m.subview = svQR
+	m.qrLabel = "Alice — Tor"
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svLndHubCreateAccount {
+		t.Errorf("backspace from LndHub QR: got %d, want %d (create account)",
+			m.subview, svLndHubCreateAccount)
 	}
 }
 
@@ -286,8 +345,21 @@ func TestServiceCountWithLND(t *testing.T) {
 
 func TestServiceCountFullStack(t *testing.T) {
 	m := testModelFullStack()
-	if m.svcCount() != 5 {
-		t.Errorf("full stack service count: got %d, want 5", m.svcCount())
+	if m.svcCount() != 6 {
+		t.Errorf("full stack service count: got %d, want 6", m.svcCount())
+	}
+}
+
+func TestServiceCountFullStackHybrid(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.LITInstalled = true
+	cfg.SyncthingInstalled = true
+	cfg.LndHubInstalled = true
+	cfg.P2PMode = "hybrid"
+	m := NewModel(cfg, "0.0.0-test")
+	if m.svcCount() != 7 {
+		t.Errorf("full stack hybrid service count: got %d, want 7", m.svcCount())
 	}
 }
 
@@ -295,7 +367,7 @@ func TestServiceCountFullStack(t *testing.T) {
 
 func TestServiceNames(t *testing.T) {
 	m := testModelFullStack()
-	expected := []string{"tor", "bitcoind", "lnd", "litd", "syncthing"}
+	expected := []string{"tor", "bitcoind", "lnd", "litd", "syncthing", "lndhub"}
 	for i, want := range expected {
 		got := m.svcName(i)
 		if got != want {
@@ -315,7 +387,7 @@ func TestServiceNameOutOfBounds(t *testing.T) {
 // ── Addons Navigation ────────────────────────────────────
 
 func TestAddonsSyncthingRequiresLND(t *testing.T) {
-	m := testModel() // no LND
+	m := testModel()
 	m.width = 80
 	m.height = 24
 	m.activeTab = tabAddons
@@ -323,14 +395,13 @@ func TestAddonsSyncthingRequiresLND(t *testing.T) {
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
-	// Should not trigger install without LND
 	if m.shellAction == svSyncthingInstall {
 		t.Error("syncthing install should not trigger without LND")
 	}
 }
 
 func TestAddonsLITRequiresLND(t *testing.T) {
-	m := testModel() // no LND
+	m := testModel()
 	m.width = 80
 	m.height = 24
 	m.activeTab = tabAddons
@@ -368,10 +439,272 @@ func TestSettingsNoUpdateWhenCurrent(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.activeTab = tabSettings
-	m.latestVersion = installer.GetVersion() // matches current version exactly
+	m.latestVersion = installer.GetVersion()
 
 	m = handleSettingsKey(m, "enter")
 	if m.updateConfirm {
 		t.Error("should not confirm update when already on latest")
+	}
+}
+
+// ── LndHub ───────────────────────────────────────────────
+
+func TestAddonsLndHubRequiresLND(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 2
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if m.shellAction == svLndHubInstall {
+		t.Error("LndHub install should not trigger without LND")
+	}
+}
+
+func TestAddonsLndHubInstallWithLND(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.WalletCreated = true
+	m := NewModel(cfg, "0.0.0-test")
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 2
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if m.shellAction != svLndHubInstall {
+		t.Errorf("enter on LndHub with LND+wallet: got shellAction %d, want %d",
+			m.shellAction, svLndHubInstall)
+	}
+}
+
+func TestAddonsLndHubManageWhenInstalled(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.WalletCreated = true
+	cfg.LndHubInstalled = true
+	cfg.LndHubAdminToken = "test-token"
+	m := NewModel(cfg, "0.0.0-test")
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 2
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if m.subview != svLndHubManage {
+		t.Errorf("enter on installed LndHub: got subview %d, want %d",
+			m.subview, svLndHubManage)
+	}
+}
+
+func TestAddonNavThreeCards(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.activeTab = tabAddons
+	m.addonFocus = 0
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = newM.(Model)
+	if m.addonFocus != 1 {
+		t.Errorf("right from 0: got %d, want 1", m.addonFocus)
+	}
+
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = newM.(Model)
+	if m.addonFocus != 2 {
+		t.Errorf("right from 1: got %d, want 2", m.addonFocus)
+	}
+
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = newM.(Model)
+	if m.addonFocus != 2 {
+		t.Errorf("right from 2: got %d, want 2 (clamped)", m.addonFocus)
+	}
+
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	m = newM.(Model)
+	if m.addonFocus != 1 {
+		t.Errorf("left from 2: got %d, want 1", m.addonFocus)
+	}
+
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	m = newM.(Model)
+	if m.addonFocus != 0 {
+		t.Errorf("left from 1: got %d, want 0", m.addonFocus)
+	}
+}
+
+func TestLndHubManageBackspace(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubManage
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svNone {
+		t.Errorf("backspace from lndhub manage: got %d, want %d", m.subview, svNone)
+	}
+}
+
+func TestLndHubCreateNameBackspaceEmpty(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubCreateName
+	m.hubNameInput = ""
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svLndHubManage {
+		t.Errorf("backspace from empty name: got %d, want %d",
+			m.subview, svLndHubManage)
+	}
+}
+
+func TestLndHubCreateNameBackspaceWithText(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubCreateName
+	m.hubNameInput = "Ali"
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = newM.(Model)
+	if m.subview != svLndHubCreateName {
+		t.Error("backspace with text should stay on name screen")
+	}
+	if m.hubNameInput != "Al" {
+		t.Errorf("hubNameInput: got %q, want Al", m.hubNameInput)
+	}
+}
+
+func TestLndHubAccountCreatedMsg(t *testing.T) {
+	cfg := config.Default()
+	cfg.LndHubInstalled = true
+	cfg.LndHubAdminToken = "test"
+	m := testModelWithStore(t, cfg)
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubCreateName
+	m.hubNameInput = "Alice"
+
+	account := &installer.LndHubAccount{
+		Login:    "abc123",
+		Password: "def456",
+	}
+	newM, _ := m.Update(lndhubAccountCreatedMsg{account: account})
+	m = newM.(Model)
+
+	if m.subview != svLndHubCreateAccount {
+		t.Errorf("after account created: got subview %d, want %d",
+			m.subview, svLndHubCreateAccount)
+	}
+	if m.lastAccount == nil {
+		t.Error("lastAccount should be set")
+	}
+	if len(m.cfg.LndHubAccounts) != 1 {
+		t.Errorf("accounts: got %d, want 1", len(m.cfg.LndHubAccounts))
+	}
+	if m.cfg.LndHubAccounts[0].Label != "Alice" {
+		t.Errorf("label: got %q, want Alice", m.cfg.LndHubAccounts[0].Label)
+	}
+}
+
+func TestLndHubDeactivatedMsg(t *testing.T) {
+	cfg := config.Default()
+	cfg.LndHubInstalled = true
+	cfg.LndHubAccounts = []config.LndHubAccount{
+		{Label: "Alice", Login: "abc", CreatedAt: "2026-02-23", Active: true},
+	}
+	m := testModelWithStore(t, cfg)
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubDeactivateConfirm
+	m.hubCursor = 0
+
+	newM, _ := m.Update(lndhubDeactivatedMsg{balance: "5000", err: nil})
+	m = newM.(Model)
+
+	if m.subview != svLndHubManage {
+		t.Errorf("after deactivate: got subview %d, want %d",
+			m.subview, svLndHubManage)
+	}
+	if m.cfg.LndHubAccounts[0].Active {
+		t.Error("account should be deactivated")
+	}
+	if m.cfg.LndHubAccounts[0].BalanceOnDeactivate != "5000" {
+		t.Errorf("balance: got %q, want 5000",
+			m.cfg.LndHubAccounts[0].BalanceOnDeactivate)
+	}
+}
+
+func TestLndHubAccountCreatedMsgError(t *testing.T) {
+	cfg := config.Default()
+	cfg.LndHubInstalled = true
+	m := testModelWithStore(t, cfg)
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubCreateName
+	m.hubNameInput = "Bob"
+
+	newM, _ := m.Update(lndhubAccountCreatedMsg{account: nil, err: fmt.Errorf("connection refused")})
+	m = newM.(Model)
+
+	if m.subview != svLndHubManage {
+		t.Errorf("after error: got subview %d, want %d (manage)",
+			m.subview, svLndHubManage)
+	}
+	if len(m.cfg.LndHubAccounts) != 0 {
+		t.Error("should not have added account on error")
+	}
+}
+
+// ── Hub Name Input Validation ────────────────────────────
+
+func TestHubNameAllowedChars(t *testing.T) {
+	allowed := []string{"a", "Z", "0", "9", " ", "-"}
+	for _, key := range allowed {
+		if !isAllowedHubNameChar(key) {
+			t.Errorf("isAllowedHubNameChar(%q) should be true", key)
+		}
+	}
+}
+
+func TestHubNameRejectedChars(t *testing.T) {
+	rejected := []string{";", "'", "\"", "/", "\\", "|", "&", "$", "`", "\n", "\t", ".", ",", "!", "@", "#"}
+	for _, key := range rejected {
+		if isAllowedHubNameChar(key) {
+			t.Errorf("isAllowedHubNameChar(%q) should be false", key)
+		}
+	}
+}
+
+func TestHubNameMultiByteRejected(t *testing.T) {
+	if isAllowedHubNameChar("ab") {
+		t.Error("multi-byte input should be rejected")
+	}
+	if isAllowedHubNameChar("") {
+		t.Error("empty input should be rejected")
+	}
+}
+
+func TestHubNameMaxLength(t *testing.T) {
+	m := testModelFullStack()
+	m.width = 80
+	m.height = 24
+	m.subview = svLndHubCreateName
+	m.hubNameInput = "abcdefghijklmnopqrstuvwxyz1234" // 30 chars
+
+	// Try to add one more
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = newM.(Model)
+	if len(m.hubNameInput) != 30 {
+		t.Errorf("name length: got %d, want 30 (max)", len(m.hubNameInput))
 	}
 }

@@ -63,6 +63,23 @@ func SudoRunContext(timeout time.Duration, name string, args ...string) (string,
 	return RunContext(timeout, "sudo", sudoArgs...)
 }
 
+// RunCombinedOutput executes a command and returns combined stdout+stderr.
+// Used for GPG commands which write status to stderr.
+func RunCombinedOutput(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// SudoRunCombinedOutput executes a command via sudo and returns combined stdout+stderr.
+func SudoRunCombinedOutput(name string, args ...string) (string, error) {
+	sudoArgs := append([]string{name}, args...)
+	return RunCombinedOutput("sudo", sudoArgs...)
+}
+
 // RunSilent executes a command and discards all output.
 func RunSilent(name string, args ...string) error {
 	cmd := exec.Command(name, args...)

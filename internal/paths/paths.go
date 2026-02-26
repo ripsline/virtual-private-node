@@ -75,12 +75,13 @@ const (
 // ── Systemd ──────────────────────────────────────────────
 
 const (
-	BitcoindService   = "/etc/systemd/system/bitcoind.service"
-	LNDService        = "/etc/systemd/system/lnd.service"
-	LITDService       = "/etc/systemd/system/litd.service"
-	SyncthingService  = "/etc/systemd/system/syncthing.service"
-	BackupWatchPath   = "/etc/systemd/system/lnd-backup-watch.path"
-	BackupCopyService = "/etc/systemd/system/lnd-backup-copy.service"
+	BitcoindService    = "/etc/systemd/system/bitcoind.service"
+	LNDService         = "/etc/systemd/system/lnd.service"
+	LITDService        = "/etc/systemd/system/litd.service"
+	SyncthingService   = "/etc/systemd/system/syncthing.service"
+	BackupWatchPath    = "/etc/systemd/system/lnd-backup-watch.path"
+	BackupCopyService  = "/etc/systemd/system/lnd-backup-copy.service"
+	LndHubProxyService = "/etc/systemd/system/lndhub-proxy.service"
 )
 
 // ── Logs ─────────────────────────────────────────────────
@@ -95,6 +96,7 @@ const (
 	SyncthingConfigXML  = "/etc/syncthing/config.xml"
 	UFWDefault          = "/etc/default/ufw"
 	SSHDConfig          = "/etc/ssh/sshd_config"
+	SSHDDropIn          = "/etc/ssh/sshd_config.d/99-no-root.conf"
 	Fail2banJail        = "/etc/fail2ban/jail.local"
 	AutoUpgrades        = "/etc/apt/apt.conf.d/20auto-upgrades"
 	UnattendedUpgrades  = "/etc/apt/apt.conf.d/50unattended-upgrades"
@@ -103,9 +105,37 @@ const (
 	SyncthingSourceList = "/etc/apt/sources.list.d/syncthing.list"
 )
 
+// ── LndHub ───────────────────────────────────────────────
+
+const (
+	LndHubDir          = "/etc/lndhub"
+	LndHubEnv          = "/etc/lndhub/lndhub.env"
+	LndHubDataDir      = "/var/lib/lndhub"
+	LndHubService      = "/etc/systemd/system/lndhub.service"
+	LndHubMacaroon     = "/var/lib/lnd/lndhub.macaroon"
+	TorLndHub          = "/var/lib/tor/lndhub"
+	TorLndHubHostname  = "/var/lib/tor/lndhub/hostname"
+	LndHubInternalPort = "3004"
+	LndHubExternalPort = "3000"
+)
+
+// ── LndHub Proxy ─────────────────────────────────────────
+
+const (
+	LndHubProxyCert = "/etc/lndhub/proxy-tls.cert"
+	LndHubProxyKey  = "/etc/lndhub/proxy-tls.key"
+)
+
 // ── User ─────────────────────────────────────────────────
 
 const (
 	AdminUser   = "ripsline"
 	AdminBashrc = "/home/ripsline/.bashrc"
+)
+
+// ── Cache ────────────────────────────────────────────────
+
+const (
+	VersionCacheDir  = "/home/ripsline/.cache/rlvpn"
+	VersionCacheFile = "/home/ripsline/.cache/rlvpn/latest-version"
 )

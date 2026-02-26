@@ -88,6 +88,8 @@ func runSystemUpdate() {
 	fmt.Println("  Running apt update && apt upgrade...")
 	fmt.Println()
 
+	// Interactive commands need stdin/stdout passthrough —
+	// exec.Command is the correct choice here.
 	updateCmd := exec.Command("sudo", "apt-get", "update")
 	updateCmd.Stdout = os.Stdout
 	updateCmd.Stderr = os.Stderr
@@ -119,6 +121,7 @@ func runLogViewer(svcName string, cfg *config.AppConfig) {
 	fmt.Printf("    %s Logs (last 100 lines)\n", svcName)
 	fmt.Printf("  ═══════════════════════════════════════════\n\n")
 
+	// Interactive command needs stdout passthrough.
 	cmd := exec.Command("sudo", "journalctl", "-u", svcName, "-n", "100", "--no-pager")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

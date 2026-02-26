@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/paths"
 )
 
 func TestTorConfigBitcoinOnly(t *testing.T) {
@@ -169,5 +170,81 @@ func TestTorConfigNoControlPortWithoutLND(t *testing.T) {
 
 	if strings.Contains(content, "ControlPort") {
 		t.Error("should not have ControlPort without LND")
+	}
+}
+
+func TestTorConfigWithLndHub(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.LndHubInstalled = true
+	content := BuildTorConfig(cfg)
+
+	required := []string{
+		"lndhub",
+		"HiddenServicePort " + paths.LndHubExternalPort,
+	}
+	for _, req := range required {
+		if !strings.Contains(content, req) {
+			t.Errorf("missing %q in LndHub torrc", req)
+		}
+	}
+
+	// Verify Tor points to internal port
+	if !strings.Contains(content, "127.0.0.1:"+paths.LndHubInternalPort) {
+		t.Error("LndHub hidden service should point to internal port " + paths.LndHubInternalPort)
+	}
+}
+
+func TestTorConfigNoLndHubWithoutInstall(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	content := BuildTorConfig(cfg)
+
+	if strings.Contains(content, "lndhub") {
+		t.Error("should not have lndhub without install")
+	}
+}
+
+func TestTorConfigFullStackWithLndHub(t *testing.T) {
+	cfg := &config.AppConfig{
+		Network:            "mainnet",
+		LNDInstalled:       true,
+		LITInstalled:       true,
+		SyncthingInstalled: true,
+		LndHubInstalled:    true,
+	}
+	content := BuildTorConfig(cfg)
+
+	required := []string{
+		"SOCKSPort 9050",
+		"ControlPort 9051",
+		"bitcoin-p2p",
+		"lnd-grpc",
+		"lnd-rest",
+		"lnd-lit",
+		"syncthing",
+		"syncthing-sync",
+		"lndhub",
+		"HiddenServicePort " + paths.LndHubExternalPort,
+		"127.0.0.1:" + paths.LndHubInternalPort,
+	}
+	for _, req := range required {
+		if !strings.Contains(content, req) {
+			t.Errorf("full stack with lndhub torrc missing %q", req)
+		}
+	}
+}
+
+func TestTorConfigLndHubInternalPort(t *testing.T) {
+	cfg := &config.AppConfig{
+		Network:         "mainnet",
+		LNDInstalled:    true,
+		LndHubInstalled: true,
+	}
+	content := BuildTorConfig(cfg)
+
+	// Should NOT point directly to external port on localhost
+	if strings.Contains(content, "127.0.0.1:"+paths.LndHubExternalPort) {
+		t.Error("Tor should point to internal port, not external port")
 	}
 }
