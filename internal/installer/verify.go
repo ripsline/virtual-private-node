@@ -275,44 +275,56 @@ func verifyLITSig(version string) error {
 
 // ── Checksum verification ────────────────────────────────
 
-func verifyBitcoin(version string) error {
+func verifyBitcoin() error {
 	logger.Verify("--- Bitcoin Core checksum verification ---")
-	output, err := system.RunCombinedOutput("sha256sum", "--ignore-missing", "--check", "/tmp/SHA256SUMS")
+	// exec.Command used directly because sha256sum --check needs
+	// working directory set to /tmp where the tarball was downloaded.
+	cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "SHA256SUMS")
+	cmd.Dir = "/tmp"
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		logger.Verify("FAIL: Bitcoin Core checksum: %s", output)
+		logger.Verify("FAIL: Bitcoin Core checksum: %s", string(output))
 		return fmt.Errorf("checksum failed: %w: %s", err, output)
 	}
-	logger.Verify("OK Bitcoin Core checksum: %s", strings.TrimSpace(output))
+	logger.Verify("OK Bitcoin Core checksum: %s", strings.TrimSpace(string(output)))
 	return nil
 }
 
-func verifyLND(version string) error {
+func verifyLND() error {
 	logger.Verify("--- LND checksum verification ---")
 	if _, err := os.Stat("/tmp/manifest.txt"); err != nil {
 		logger.Verify("FAIL: LND manifest not found")
 		return fmt.Errorf("LND manifest not found")
 	}
-	output, err := system.RunCombinedOutput("sha256sum", "--ignore-missing", "--check", "/tmp/manifest.txt")
+	// exec.Command used directly because sha256sum --check needs
+	// working directory set to /tmp where the tarball was downloaded.
+	cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "manifest.txt")
+	cmd.Dir = "/tmp"
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		logger.Verify("FAIL: LND checksum: %s", output)
+		logger.Verify("FAIL: LND checksum: %s", string(output))
 		return fmt.Errorf("checksum failed: %w: %s", err, output)
 	}
-	logger.Verify("OK LND checksum: %s", strings.TrimSpace(output))
+	logger.Verify("OK LND checksum: %s", strings.TrimSpace(string(output)))
 	return nil
 }
 
-func verifyLIT(version string) error {
+func verifyLIT() error {
 	logger.Verify("--- LIT checksum verification ---")
 	if _, err := os.Stat("/tmp/lit-manifest.txt"); err != nil {
 		logger.Verify("FAIL: LIT manifest not found")
 		return fmt.Errorf("LIT manifest not found")
 	}
-	output, err := system.RunCombinedOutput("sha256sum", "--ignore-missing", "--check", "/tmp/lit-manifest.txt")
+	// exec.Command used directly because sha256sum --check needs
+	// working directory set to /tmp where the tarball was downloaded.
+	cmd := exec.Command("sha256sum", "--ignore-missing", "--check", "lit-manifest.txt")
+	cmd.Dir = "/tmp"
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		logger.Verify("FAIL: LIT checksum: %s", output)
+		logger.Verify("FAIL: LIT checksum: %s", string(output))
 		return fmt.Errorf("checksum failed: %w: %s", err, output)
 	}
-	logger.Verify("OK LIT checksum: %s", strings.TrimSpace(output))
+	logger.Verify("OK LIT checksum: %s", strings.TrimSpace(string(output)))
 	return nil
 }
 
