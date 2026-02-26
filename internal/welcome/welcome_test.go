@@ -350,6 +350,19 @@ func TestServiceCountFullStack(t *testing.T) {
 	}
 }
 
+func TestServiceCountFullStackHybrid(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.LITInstalled = true
+	cfg.SyncthingInstalled = true
+	cfg.LndHubInstalled = true
+	cfg.P2PMode = "hybrid"
+	m := NewModel(cfg, "0.0.0-test")
+	if m.svcCount() != 7 {
+		t.Errorf("full stack hybrid service count: got %d, want 7", m.svcCount())
+	}
+}
+
 // ── Service Names ────────────────────────────────────────
 
 func TestServiceNames(t *testing.T) {

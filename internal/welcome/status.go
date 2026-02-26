@@ -29,6 +29,9 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
 		if cfg.LndHubInstalled {
 			names = append(names, "lndhub")
 		}
+		if cfg.LndHubInstalled && cfg.P2PMode == "hybrid" {
+			names = append(names, "lndhub-proxy")
+		}
 		for _, name := range names {
 			s.services[name] = system.IsServiceActive(name)
 		}

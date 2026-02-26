@@ -51,6 +51,9 @@ func (m Model) cardServicesView(w, h int) string {
 	if m.cfg.LndHubInstalled {
 		names = append(names, "lndhub")
 	}
+	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
+		names = append(names, "lndhub-proxy")
+	}
 
 	for i, name := range names {
 		dot := theme.RedDot.Render("●")

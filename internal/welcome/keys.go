@@ -612,6 +612,9 @@ func (m Model) svcName(i int) string {
 	if m.cfg.LndHubInstalled {
 		names = append(names, "lndhub")
 	}
+	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
+		names = append(names, "lndhub-proxy")
+	}
 	if i < len(names) {
 		return names[i]
 	}

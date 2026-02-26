@@ -74,7 +74,7 @@ func generateProxyCert(publicIP string) error {
 	if err := system.SudoRun("chown", "root:"+systemUser, paths.LndHubProxyCert); err != nil {
 		return err
 	}
-	if err := system.SudoWriteFile(paths.LndHubProxyKey, keyPEM, 0600); err != nil {
+	if err := system.SudoWriteFile(paths.LndHubProxyKey, keyPEM, 0640); err != nil {
 		return err
 	}
 	if err := system.SudoRun("chown", "root:"+systemUser, paths.LndHubProxyKey); err != nil {
