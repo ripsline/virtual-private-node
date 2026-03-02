@@ -64,11 +64,10 @@ HiddenServicePort 8443 127.0.0.1:8443
 # Syncthing web UI (Tor only, HTTP)
 HiddenServiceDir /var/lib/tor/syncthing/
 HiddenServicePort 8384 127.0.0.1:8384
-
-# Syncthing sync protocol (Tor only)
-HiddenServiceDir /var/lib/tor/syncthing-sync/
-HiddenServicePort 22000 127.0.0.1:22000
 `)
+		// Sync protocol (port 22000) goes over clearnet.
+		// No hidden service needed — Syncthing uses mutual TLS
+		// with explicit device approval for authentication.
 	}
 
 	if cfg.LndHubInstalled {
@@ -85,7 +84,8 @@ HiddenServicePort %s 127.0.0.1:%s
 // RebuildTorConfig writes the torrc to disk.
 func RebuildTorConfig(cfg *config.AppConfig) error {
 	content := BuildTorConfig(cfg)
-	if err := system.SudoWriteFile(paths.Torrc, []byte(content), 0640); err != nil {
+	if err := system.SudoWriteFile(
+		paths.Torrc, []byte(content), 0640); err != nil {
 		return err
 	}
 	return system.SudoRun("chown", "root:debian-tor", paths.Torrc)

@@ -3,13 +3,17 @@
 package installer
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/logger"
 	"github.com/ripsline/virtual-private-node/internal/paths"
 	"github.com/ripsline/virtual-private-node/internal/system"
 )
@@ -50,7 +54,8 @@ func installSyncthingRepo() error {
 		"https://syncthing.net/release-key.gpg"); err != nil {
 		return err
 	}
-	repoLine := `deb [signed-by=` + paths.SyncthingKeyring + `] https://apt.syncthing.net/ syncthing stable-v2`
+	repoLine := `deb [signed-by=` + paths.SyncthingKeyring +
+		`] https://apt.syncthing.net/ syncthing stable-v2`
 	return system.SudoWriteFile(paths.SyncthingSourceList,
 		[]byte(repoLine+"\n"), 0644)
 }
@@ -79,7 +84,8 @@ func createSyncthingDirs() error {
 		if err := system.SudoRun("chown", d.owner, d.path); err != nil {
 			return err
 		}
-		if err := system.SudoRun("chmod", fmt.Sprintf("%o", d.mode), d.path); err != nil {
+		if err := system.SudoRun("chmod",
+			fmt.Sprintf("%o", d.mode), d.path); err != nil {
 			return err
 		}
 	}
@@ -110,7 +116,8 @@ WantedBy=multi-user.target
 }
 
 func configureSyncthingAuth(password string) error {
-	system.SudoRunSilent("chown", systemUser+":"+systemUser, paths.SyncthingDir)
+	system.SudoRunSilent("chown",
+		systemUser+":"+systemUser, paths.SyncthingDir)
 
 	if err := system.SudoRun("sudo", "-u", systemUser, "syncthing",
 		"generate", "--home="+paths.SyncthingDir); err != nil {
@@ -129,7 +136,8 @@ func configureSyncthingAuth(password string) error {
 	}
 
 	// Hash password
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword(
+		[]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
 	}
@@ -140,12 +148,16 @@ func configureSyncthingAuth(password string) error {
 	cfg.GUI.Password = string(hash)
 	cfg.GUI.InsecureSkipHostcheck = true
 
-	// Disable discovery and relays
+	// Disable discovery and relays — connections are direct only
 	cfg.Options.GlobalAnnounceEnabled = false
 	cfg.Options.LocalAnnounceEnabled = false
 	cfg.Options.RelaysEnabled = false
 	cfg.Options.NATEnabled = false
-	cfg.Options.ListenAddresses = []string{"tcp://127.0.0.1:22000"}
+
+	// Listen on all interfaces for clearnet sync connections.
+	// Syncthing uses mutual TLS — only pre-approved Device IDs
+	// can establish a connection.
+	cfg.Options.ListenAddresses = []string{"tcp://0.0.0.0:22000"}
 	cfg.Options.Rest = nil
 
 	// Marshal back
@@ -160,7 +172,8 @@ func configureSyncthingAuth(password string) error {
 	if err := system.SudoWriteFile(configPath, xmlOutput, 0640); err != nil {
 		return err
 	}
-	return system.SudoRun("chown", systemUser+":"+systemUser, configPath)
+	return system.SudoRun("chown",
+		systemUser+":"+systemUser, configPath)
 }
 
 func setupChannelBackupWatcher(cfg *config.AppConfig) error {
@@ -202,16 +215,19 @@ ExecStart=/bin/cp %s %s
 	if err := system.SudoRun("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	if err := system.SudoRun("systemctl", "enable", "lnd-backup-watch.path"); err != nil {
+	if err := system.SudoRun("systemctl", "enable",
+		"lnd-backup-watch.path"); err != nil {
 		return err
 	}
-	if err := system.SudoRun("systemctl", "start", "lnd-backup-watch.path"); err != nil {
+	if err := system.SudoRun("systemctl", "start",
+		"lnd-backup-watch.path"); err != nil {
 		return err
 	}
 
 	// Copy existing backup if present
 	system.SudoRunSilent("cp", backupSource, backupDest)
-	system.SudoRunSilent("chown", systemUser+":"+systemUser, backupDest)
+	system.SudoRunSilent("chown",
+		systemUser+":"+systemUser, backupDest)
 	return nil
 }
 
@@ -223,4 +239,136 @@ func startSyncthing() error {
 		return err
 	}
 	return system.SudoRun("systemctl", "start", "syncthing")
+}
+
+// ── Syncthing Device Pairing ─────────────────────────────
+
+// GetSyncthingDeviceID returns the VPS Syncthing Device ID.
+func GetSyncthingDeviceID() string {
+	output, err := system.RunContext(5*time.Second,
+		"sudo", "-u", systemUser, "syncthing",
+		"--home="+paths.SyncthingDir, "show-id")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
+
+// PairSyncthingDevice adds a remote device to Syncthing and
+// shares the lnd-backup folder with it via the REST API.
+func PairSyncthingDevice(deviceID string) error {
+	apiKey, err := getSyncthingAPIKey()
+	if err != nil {
+		return fmt.Errorf("get API key: %w", err)
+	}
+
+	// Add the device
+	devicePayload := fmt.Sprintf(`{
+        "deviceID": %q,
+        "name": "local-backup",
+        "addresses": ["dynamic"],
+        "autoAcceptFolders": true
+    }`, deviceID)
+
+	if err := syncthingAPIPost(apiKey,
+		"/rest/config/devices", devicePayload); err != nil {
+		return fmt.Errorf("add device: %w", err)
+	}
+
+	// Share the backup folder with the new device
+	folderConfig, err := syncthingAPIGet(apiKey,
+		"/rest/config/folders")
+	if err != nil {
+		return fmt.Errorf("get folders: %w", err)
+	}
+
+	if err := addDeviceToBackupFolder(apiKey,
+		folderConfig, deviceID); err != nil {
+		return fmt.Errorf("share folder: %w", err)
+	}
+
+	logger.Install("Paired Syncthing device: %s...",
+		deviceID[:min(16, len(deviceID))])
+	return nil
+}
+
+func getSyncthingAPIKey() (string, error) {
+	output, err := system.SudoRunOutput("cat",
+		paths.SyncthingConfigXML)
+	if err != nil {
+		return "", err
+	}
+
+	var cfg syncthingConfig
+	if err := xml.Unmarshal([]byte(output), &cfg); err != nil {
+		return "", err
+	}
+	if cfg.GUI.APIKey == "" {
+		return "", fmt.Errorf("no API key found")
+	}
+	return cfg.GUI.APIKey, nil
+}
+
+func syncthingAPIPost(apiKey, endpoint, body string) error {
+	_, err := system.RunContext(10*time.Second,
+		"curl", "-s",
+		"-X", "POST",
+		"-H", "X-API-Key: "+apiKey,
+		"-H", "Content-Type: application/json",
+		"-d", body,
+		"http://127.0.0.1:8384"+endpoint)
+	return err
+}
+
+func syncthingAPIGet(apiKey, endpoint string) (string, error) {
+	return system.RunContext(10*time.Second,
+		"curl", "-s",
+		"-H", "X-API-Key: "+apiKey,
+		"http://127.0.0.1:8384"+endpoint)
+}
+
+func addDeviceToBackupFolder(
+	apiKey, foldersJSON, deviceID string,
+) error {
+	type folderDevice struct {
+		DeviceID     string `json:"deviceID"`
+		IntroducedBy string `json:"introducedBy,omitempty"`
+	}
+	type folder struct {
+		ID      string         `json:"id"`
+		Path    string         `json:"path"`
+		Devices []folderDevice `json:"devices"`
+	}
+
+	var folders []folder
+	if err := json.Unmarshal(
+		[]byte(foldersJSON), &folders); err != nil {
+		return err
+	}
+
+	for i, f := range folders {
+		if f.Path == paths.SyncthingBackup ||
+			f.Path == paths.SyncthingBackup+"/" {
+			// Check if device already added
+			for _, d := range f.Devices {
+				if d.DeviceID == deviceID {
+					return nil
+				}
+			}
+			folders[i].Devices = append(
+				folders[i].Devices,
+				folderDevice{DeviceID: deviceID},
+			)
+
+			updated, err := json.Marshal(folders[i])
+			if err != nil {
+				return err
+			}
+			return syncthingAPIPost(apiKey,
+				"/rest/config/folders/"+f.ID,
+				string(updated))
+		}
+	}
+
+	return fmt.Errorf("backup folder not found")
 }

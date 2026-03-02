@@ -82,16 +82,20 @@ func TestTorConfigWithSyncthing(t *testing.T) {
 	cfg.SyncthingInstalled = true
 	content := BuildTorConfig(cfg)
 
-	required := []string{
-		"syncthing",
-		"HiddenServicePort 8384",
-		"syncthing-sync",
-		"HiddenServicePort 22000",
+	// Web UI still accessible over Tor
+	if !strings.Contains(content, "syncthing") {
+		t.Error("missing syncthing hidden service")
 	}
-	for _, req := range required {
-		if !strings.Contains(content, req) {
-			t.Errorf("missing %q in Syncthing torrc", req)
-		}
+	if !strings.Contains(content, "HiddenServicePort 8384") {
+		t.Error("missing Syncthing web UI port")
+	}
+
+	// Sync protocol goes over clearnet — no hidden service
+	if strings.Contains(content, "syncthing-sync") {
+		t.Error("should not have syncthing-sync hidden service")
+	}
+	if strings.Contains(content, "HiddenServicePort 22000") {
+		t.Error("should not have port 22000 hidden service")
 	}
 }
 
@@ -131,12 +135,17 @@ func TestTorConfigFullStack(t *testing.T) {
 		"lnd-rest",
 		"lnd-lit",
 		"syncthing",
-		"syncthing-sync",
+		"HiddenServicePort 8384",
 	}
 	for _, req := range required {
 		if !strings.Contains(content, req) {
 			t.Errorf("full stack torrc missing %q", req)
 		}
+	}
+
+	// Sync protocol over clearnet, not Tor
+	if strings.Contains(content, "syncthing-sync") {
+		t.Error("full stack should not have syncthing-sync hidden service")
 	}
 }
 
@@ -190,8 +199,10 @@ func TestTorConfigWithLndHub(t *testing.T) {
 	}
 
 	// Verify Tor points to internal port
-	if !strings.Contains(content, "127.0.0.1:"+paths.LndHubInternalPort) {
-		t.Error("LndHub hidden service should point to internal port " + paths.LndHubInternalPort)
+	if !strings.Contains(content,
+		"127.0.0.1:"+paths.LndHubInternalPort) {
+		t.Error("LndHub hidden service should point to internal port " +
+			paths.LndHubInternalPort)
 	}
 }
 
@@ -223,7 +234,7 @@ func TestTorConfigFullStackWithLndHub(t *testing.T) {
 		"lnd-rest",
 		"lnd-lit",
 		"syncthing",
-		"syncthing-sync",
+		"HiddenServicePort 8384",
 		"lndhub",
 		"HiddenServicePort " + paths.LndHubExternalPort,
 		"127.0.0.1:" + paths.LndHubInternalPort,
@@ -232,6 +243,11 @@ func TestTorConfigFullStackWithLndHub(t *testing.T) {
 		if !strings.Contains(content, req) {
 			t.Errorf("full stack with lndhub torrc missing %q", req)
 		}
+	}
+
+	// No sync hidden service
+	if strings.Contains(content, "syncthing-sync") {
+		t.Error("should not have syncthing-sync hidden service")
 	}
 }
 
@@ -244,7 +260,8 @@ func TestTorConfigLndHubInternalPort(t *testing.T) {
 	content := BuildTorConfig(cfg)
 
 	// Should NOT point directly to external port on localhost
-	if strings.Contains(content, "127.0.0.1:"+paths.LndHubExternalPort) {
+	if strings.Contains(content,
+		"127.0.0.1:"+paths.LndHubExternalPort) {
 		t.Error("Tor should point to internal port, not external port")
 	}
 }

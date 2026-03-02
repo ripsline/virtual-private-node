@@ -22,6 +22,8 @@ func (m Model) View() string {
 		return m.viewZeus()
 	case svSyncthingDetail:
 		return m.viewSyncthingDetail()
+	case svSyncthingPairInput:
+		return m.viewSyncthingPairInput()
 	case svLITDetail:
 		return m.viewLITDetail()
 	case svLndHubManage:
@@ -54,7 +56,8 @@ func (m Model) View() string {
 	}
 
 	title := theme.Title.Width(bw).Align(lipgloss.Center).
-		Render(fmt.Sprintf(" Virtual Private Node v%s ", m.version))
+		Render(fmt.Sprintf(" Virtual Private Node v%s ",
+			m.version))
 	tabs := m.viewTabs(bw)
 	footer := m.viewFooter()
 	body := lipgloss.JoinVertical(lipgloss.Center,
@@ -79,11 +82,13 @@ func (m Model) viewTabs(tw int) string {
 	var out []string
 	for _, t := range tabs {
 		if t.t == m.activeTab {
-			out = append(out, theme.ActiveTab.Width(w).
-				Align(lipgloss.Center).Render(t.n))
+			out = append(out,
+				theme.ActiveTab.Width(w).
+					Align(lipgloss.Center).Render(t.n))
 		} else {
-			out = append(out, theme.InactiveTab.Width(w).
-				Align(lipgloss.Center).Render(t.n))
+			out = append(out,
+				theme.InactiveTab.Width(w).
+					Align(lipgloss.Center).Render(t.n))
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, out...)
@@ -126,8 +131,10 @@ func (m Model) viewFooter() string {
 }
 
 func (m Model) viewFullURL() string {
-	title := theme.Header.Render("Full URL — Copy and paste into Tor Browser")
-	hint := theme.Dim.Render("Select and copy. Press backspace to go back.")
+	title := theme.Header.Render(
+		"Full URL — Copy and paste into Tor Browser")
+	hint := theme.Dim.Render(
+		"Select and copy. Press backspace to go back.")
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		"", title, "", hint, "", m.urlTarget, "")
 	return lipgloss.Place(m.width, m.height,

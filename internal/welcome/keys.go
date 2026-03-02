@@ -4,6 +4,7 @@ package welcome
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,18 +33,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case lndhubAccountCreatedMsg:
 		if msg.err != nil {
-			logger.TUI("Warning: failed to create LndHub account: %v", msg.err)
+			logger.TUI(
+				"Warning: failed to create LndHub account: %v",
+				msg.err)
 			m.subview = svLndHubManage
 			return m, nil
 		}
 		if msg.account != nil {
 			m.lastAccount = msg.account
-			m.cfg.LndHubAccounts = append(m.cfg.LndHubAccounts, config.LndHubAccount{
-				Label:     m.hubNameInput,
-				Login:     msg.account.Login,
-				CreatedAt: time.Now().Format("2006-01-02"),
-				Active:    true,
-			})
+			m.cfg.LndHubAccounts = append(
+				m.cfg.LndHubAccounts, config.LndHubAccount{
+					Label:     m.hubNameInput,
+					Login:     msg.account.Login,
+					CreatedAt: time.Now().Format("2006-01-02"),
+					Active:    true,
+				})
 			m.saveCfg()
 			m.subview = svLndHubCreateAccount
 		}
@@ -52,16 +56,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.hubCursor < len(m.cfg.LndHubAccounts) {
 			acct := &m.cfg.LndHubAccounts[m.hubCursor]
 			if msg.err != nil {
-				logger.TUI("Warning: deactivate failed: %v", msg.err)
+				logger.TUI(
+					"Warning: deactivate failed: %v", msg.err)
 			} else {
 				acct.Active = false
-				acct.DeactivatedAt = time.Now().Format("2006-01-02")
+				acct.DeactivatedAt = time.Now().
+					Format("2006-01-02")
 				acct.BalanceOnDeactivate = msg.balance
 				m.saveCfg()
-				logger.TUI("Deactivated account %s (balance: %s sats)", acct.Label, msg.balance)
+				logger.TUI(
+					"Deactivated account %s (balance: %s sats)",
+					acct.Label, msg.balance)
 			}
 		}
 		m.subview = svLndHubManage
+		return m, nil
+	case syncthingPairedMsg:
+		if msg.err != nil {
+			m.syncPairError = msg.err.Error()
+			m.syncPairSuccess = false
+			logger.TUI("Syncthing pairing failed: %v", msg.err)
+		} else {
+			m.syncPairError = ""
+			m.syncPairSuccess = true
+			logger.TUI("Syncthing device paired successfully")
+		}
 		return m, nil
 	case tickMsg:
 		if m.fetchInFlight {
@@ -76,7 +95,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// isAllowedHubNameChar returns true for letters, numbers, spaces, and hyphens.
+// isAllowedHubNameChar returns true for letters, numbers,
+// spaces, and hyphens.
 func isAllowedHubNameChar(key string) bool {
 	if len(key) != 1 {
 		return false
@@ -88,12 +108,25 @@ func isAllowedHubNameChar(key string) bool {
 		c == ' ' || c == '-'
 }
 
+// isAllowedSyncIDChar returns true for characters valid in a
+// Syncthing Device ID: uppercase letters, digits, and hyphens.
+func isAllowedSyncIDChar(key string) bool {
+	if len(key) != 1 {
+		return false
+	}
+	c := key[0]
+	return (c >= 'A' && c <= 'Z') ||
+		(c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') ||
+		c == '-'
+}
+
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	// Subviews
 	if m.subview != svNone {
-		// Text input for name screen
+		// Text input for LndHub name screen
 		if m.subview == svLndHubCreateName {
 			switch key {
 			case "q", "ctrl+c":
@@ -107,12 +140,50 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "enter":
 				if m.hubNameInput != "" {
-					return m, createLndHubAccountCmd(m.cfg.LndHubAdminToken)
+					return m, createLndHubAccountCmd(
+						m.cfg.LndHubAdminToken)
 				}
 				return m, nil
 			default:
-				if isAllowedHubNameChar(key) && len(m.hubNameInput) < 30 {
+				if isAllowedHubNameChar(key) &&
+					len(m.hubNameInput) < 30 {
 					m.hubNameInput += key
+				}
+				return m, nil
+			}
+		}
+
+		// Text input for Syncthing device pairing
+		if m.subview == svSyncthingPairInput {
+			switch key {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "backspace":
+				if len(m.syncDeviceInput) > 0 {
+					m.syncDeviceInput = m.syncDeviceInput[:len(m.syncDeviceInput)-1]
+				} else {
+					m.syncPairError = ""
+					m.syncPairSuccess = false
+					m.subview = svSyncthingDetail
+				}
+				return m, nil
+			case "enter":
+				if m.syncPairSuccess {
+					m.syncDeviceInput = ""
+					m.syncPairSuccess = false
+					m.subview = svSyncthingDetail
+					return m, nil
+				}
+				if m.syncDeviceInput != "" {
+					m.syncPairError = ""
+					return m, pairSyncthingDeviceCmd(
+						m.syncDeviceInput)
+				}
+				return m, nil
+			default:
+				if isAllowedSyncIDChar(key) &&
+					len(m.syncDeviceInput) < 63 {
+					m.syncDeviceInput += strings.ToUpper(key)
 				}
 				return m, nil
 			}
@@ -139,6 +210,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			case svSyncthingDetail:
 				m.subview = svNone
+			case svSyncthingPairInput:
+				m.syncDeviceInput = ""
+				m.syncPairError = ""
+				m.syncPairSuccess = false
+				m.subview = svSyncthingDetail
 			case svLITDetail:
 				m.subview = svNone
 			case svLndHubManage:
@@ -158,6 +234,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.subview = svNone
 			}
 			return m, nil
+		case "a":
+			if m.subview == svSyncthingDetail {
+				m.syncDeviceInput = ""
+				m.syncPairError = ""
+				m.syncPairSuccess = false
+				m.subview = svSyncthingPairInput
+				return m, nil
+			}
 		case "m":
 			if m.subview == svZeus {
 				m.shellAction = svMacaroonShell
@@ -170,19 +254,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.subview = svQR
 				return m, nil
 			}
-			if m.subview == svLndHubCreateAccount && m.lastAccount != nil {
+			if m.subview == svLndHubCreateAccount &&
+				m.lastAccount != nil {
 				hubOnion := readOnion(paths.TorLndHubHostname)
 				if hubOnion != "" {
-					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@http://%s:%s",
-						m.lastAccount.Login, m.lastAccount.Password,
-						hubOnion, paths.LndHubExternalPort)
+					m.urlTarget = fmt.Sprintf(
+						"lndhub://%s:%s@http://%s:%s",
+						m.lastAccount.Login,
+						m.lastAccount.Password,
+						hubOnion,
+						paths.LndHubExternalPort)
 					m.qrLabel = m.hubNameInput + " — Tor"
 					m.subview = svQR
 				}
 				return m, nil
 			}
 		case "c":
-			if m.subview == svZeus && m.cfg.P2PMode == "hybrid" {
+			if m.subview == svZeus &&
+				m.cfg.P2PMode == "hybrid" {
 				m.qrMode = "clearnet"
 				m.qrLabel = ""
 				m.subview = svQR
@@ -193,28 +282,35 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.subview = svLndHubCreateName
 				return m, nil
 			}
-			if m.subview == svLndHubCreateAccount && m.cfg.P2PMode == "hybrid" && m.lastAccount != nil {
+			if m.subview == svLndHubCreateAccount &&
+				m.cfg.P2PMode == "hybrid" &&
+				m.lastAccount != nil {
 				ip := ""
 				if m.status != nil {
 					ip = m.status.publicIP
 				}
 				if ip != "" {
-					m.urlTarget = fmt.Sprintf("lndhub://%s:%s@https://%s:%s",
-						m.lastAccount.Login, m.lastAccount.Password,
-						ip, paths.LndHubExternalPort)
+					m.urlTarget = fmt.Sprintf(
+						"lndhub://%s:%s@https://%s:%s",
+						m.lastAccount.Login,
+						m.lastAccount.Password,
+						ip,
+						paths.LndHubExternalPort)
 					m.qrLabel = m.hubNameInput + " — Clearnet"
 					m.subview = svQR
 				}
 				return m, nil
 			}
 		case "p":
-			if m.subview == svLightning && m.cfg.P2PMode == "tor" && m.cfg.HasLND() {
+			if m.subview == svLightning &&
+				m.cfg.P2PMode == "tor" && m.cfg.HasLND() {
 				m.shellAction = svP2PUpgrade
 				return m, tea.Quit
 			}
 		case "u":
 			if m.subview == svSyncthingDetail {
-				syncOnion := readOnion(paths.TorSyncthingHostname)
+				syncOnion := readOnion(
+					paths.TorSyncthingHostname)
 				if syncOnion != "" {
 					m.urlTarget = "http://" + syncOnion + ":8384"
 					m.urlReturnTo = svSyncthingDetail
@@ -234,15 +330,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.subview == svLndHubManage {
 				hubOnion := readOnion(paths.TorLndHubHostname)
 				if hubOnion != "" {
-					m.urlTarget = "http://" + hubOnion + ":" + paths.LndHubExternalPort
+					m.urlTarget = "http://" + hubOnion +
+						":" + paths.LndHubExternalPort
 					m.urlReturnTo = svLndHubManage
 					m.subview = svFullURL
 				}
 				return m, nil
 			}
 		case "x":
-			if m.subview == svLndHubManage && len(m.cfg.LndHubAccounts) > 0 {
-				if m.hubCursor < len(m.cfg.LndHubAccounts) && m.cfg.LndHubAccounts[m.hubCursor].Active {
+			if m.subview == svLndHubManage &&
+				len(m.cfg.LndHubAccounts) > 0 {
+				if m.hubCursor < len(m.cfg.LndHubAccounts) &&
+					m.cfg.LndHubAccounts[m.hubCursor].Active {
 					m.subview = svLndHubDeactivateConfirm
 				}
 				return m, nil
@@ -261,7 +360,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "enter":
-			if m.subview == svLndHubManage && len(m.cfg.LndHubAccounts) > 0 {
+			if m.subview == svLndHubManage &&
+				len(m.cfg.LndHubAccounts) > 0 {
 				m.subview = svLndHubAccountDetail
 				return m, nil
 			}
@@ -277,7 +377,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "down", "j":
-			if m.subview == svLndHubManage && m.hubCursor < len(m.cfg.LndHubAccounts)-1 {
+			if m.subview == svLndHubManage &&
+				m.hubCursor < len(m.cfg.LndHubAccounts)-1 {
 				m.hubCursor++
 				return m, nil
 			}
