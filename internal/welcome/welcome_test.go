@@ -405,7 +405,7 @@ func TestAddonsLITRequiresLND(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.activeTab = tabAddons
-	m.addonFocus = 1
+	m.addonFocus = 2
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
@@ -471,7 +471,7 @@ func TestAddonsLndHubInstallWithLND(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.activeTab = tabAddons
-	m.addonFocus = 2
+	m.addonFocus = 1
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
@@ -491,7 +491,7 @@ func TestAddonsLndHubManageWhenInstalled(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.activeTab = tabAddons
-	m.addonFocus = 2
+	m.addonFocus = 1
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
