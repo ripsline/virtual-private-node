@@ -24,6 +24,10 @@ func (m Model) View() string {
 		return m.viewSyncthingDetail()
 	case svSyncthingPairInput:
 		return m.viewSyncthingPairInput()
+	case svSyncthingDeviceDetail:
+		return m.viewSyncthingDeviceDetail()
+	case svSyncthingWebUI:
+		return m.viewSyncthingWebUI()
 	case svLITDetail:
 		return m.viewLITDetail()
 	case svLndHubManage:

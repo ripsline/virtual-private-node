@@ -163,70 +163,65 @@ func (m Model) viewSyncthingDetail() string {
 		theme.Header.Render("🔄 Syncthing — Channel Backup"))
 	lines = append(lines, "")
 
-	// Show VPS Device ID
-	vpsDeviceID := installer.GetSyncthingDeviceID()
-	lines = append(lines, "  "+theme.Label.Render("VPS Device ID:"))
-	if vpsDeviceID != "" {
-		lines = append(lines, "  "+theme.Mono.Render(vpsDeviceID))
-	} else {
-		lines = append(lines, "  "+theme.Dim.Render("Loading..."))
-	}
+	// Connection count
+	pairedCount := m.syncthingPairedCount()
+	lines = append(lines, theme.Header.Render(
+		fmt.Sprintf("  Connections (%d paired)", pairedCount)))
+	lines = append(lines, "  "+
+		theme.Dim.Render("─────────────────────────────────"))
 
-	lines = append(lines, "")
-	lines = append(lines, "  "+theme.Label.Render("VPS Address:"))
-	lines = append(lines, "  "+theme.Mono.Render(
-		"tcp://<your-server-ip>:22000"))
+	if pairedCount == 0 {
+		lines = append(lines, "  "+
+			theme.Dim.Render("No devices paired yet"))
+	} else {
+		for i, d := range m.cfg.SyncthingDevices {
+			prefix := "  "
+			style := theme.Value
+			if m.syncCursor == i {
+				prefix = "▸ "
+				style = theme.Action
+			}
+			lines = append(lines, fmt.Sprintf("  %s%s %s  %s",
+				prefix,
+				theme.GreenDot.Render("●"),
+				style.Render(d.Name),
+				theme.Dim.Render(d.PairedAt)))
+		}
+	}
 
 	lines = append(lines, "")
 	lines = append(lines, theme.Header.Render("  Setup"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"1. Install Syncthing on your computer"))
+		"1. Download & verify Syncthing — syncthing.net"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"   syncthing.net"))
+		"2. ⚙ Actions → ⚙ Settings → Connections"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"2. In local Syncthing Settings → Connections:"))
+		"   ☐ Enable NAT traversal"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"   • Disable Global Discovery"))
+		"   ☐ Global Discovery"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"   • Disable Local Discovery"))
+		"   ☐ Local Discovery"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"   • Disable Relaying"))
+		"   ☐ Enable Relaying"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"   • Disable NAT Traversal"))
+		"3. ✓ Save"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"3. Copy your Device ID: Actions → Show ID"))
+		"4. ⚙ Actions → Show ID → Copy"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"4. Press [a] below to pair"))
-	lines = append(lines, "  "+theme.Dim.Render(
-		"5. In local Syncthing, add remote device:"))
-	lines = append(lines, "  "+theme.Dim.Render(
-		"   • Paste VPS Device ID shown above"))
-	lines = append(lines, "  "+theme.Dim.Render(
-		"   • Set address shown above"))
-	lines = append(lines, "  "+theme.Dim.Render(
-		"6. Accept the backup folder share"))
-	lines = append(lines, "  "+theme.Dim.Render(
-		"   • Set folder to Receive Only"))
+		"5. Press [a] below to pair"))
 
 	lines = append(lines, "")
 	lines = append(lines, "  "+
 		theme.Action.Render("[a] pair device"))
-
-	// Syncthing web UI via Tor (advanced)
-	syncOnion := readOnion(paths.TorSyncthingHostname)
-	if syncOnion != "" {
-		lines = append(lines, "")
-		lines = append(lines, "  "+theme.Label.Render("Web UI (Tor):"))
-		lines = append(lines, "  "+theme.Dim.Render(
-			"Available — press [u] for URL"))
-	}
+	lines = append(lines, "  "+
+		theme.Action.Render("[u] web UI (Tor)"))
 
 	box := theme.Box.Width(bw).Padding(1, 2).
 		Render(strings.Join(lines, "\n"))
 	title := theme.Title.Width(bw).Align(lipgloss.Center).
 		Render(" 🔄 Syncthing Details ")
 	footer := theme.Footer.Render(
-		"  a pair device • u web UI URL • backspace back • q quit  ")
+		"  ↑↓ select • a pair • enter details • u web UI • backspace back • q quit  ")
 	full := lipgloss.JoinVertical(lipgloss.Center,
 		"", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height,
@@ -245,10 +240,7 @@ func (m Model) viewSyncthingPairInput() string {
 	lines = append(lines, "  "+theme.Dim.Render(
 		"Paste your local Syncthing Device ID."))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"From local Syncthing: Actions → Show ID"))
-	lines = append(lines, "")
-	lines = append(lines, "  "+theme.Dim.Render(
-		"Format: XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-..."))
+		"From local Syncthing: ⚙ Actions → Show ID"))
 
 	if m.syncPairError != "" {
 		lines = append(lines, "")
@@ -258,9 +250,31 @@ func (m Model) viewSyncthingPairInput() string {
 	if m.syncPairSuccess {
 		lines = append(lines, "")
 		lines = append(lines, "  "+
-			theme.Success.Render("✅ Device paired successfully!"))
-		lines = append(lines, "  "+theme.Value.Render(
-			"Now add this VPS in your local Syncthing."))
+			theme.Success.Render("✅ Device paired!"))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Header.Render(
+			"Now in your local Syncthing:"))
+		lines = append(lines, "")
+
+		vpsDeviceID := installer.GetSyncthingDeviceID()
+		if vpsDeviceID != "" {
+			lines = append(lines, "  "+theme.Dim.Render(
+				"1. Add Remote Device"))
+			lines = append(lines, "  "+theme.Label.Render(
+				"   Device ID:"))
+			lines = append(lines, "  "+theme.Mono.Render(
+				"   "+vpsDeviceID))
+			lines = append(lines, "  "+theme.Dim.Render(
+				"2. Advanced → Addresses → replace dynamic with:"))
+			lines = append(lines, "  "+theme.Mono.Render(
+				"   tcp://<your-server-ip>:22000"))
+			lines = append(lines, "  "+theme.Dim.Render(
+				"3. Save → wait for connection"))
+			lines = append(lines, "  "+theme.Dim.Render(
+				"4. Accept the lnd-backup folder share"))
+			lines = append(lines, "  "+theme.Dim.Render(
+				"   Set folder to Receive Only"))
+		}
 	}
 
 	box := theme.Box.Width(bw).Padding(1, 2).
@@ -279,6 +293,83 @@ func (m Model) viewSyncthingPairInput() string {
 		"", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height,
 		lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) viewSyncthingDeviceDetail() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+
+	if m.syncCursor >= len(m.cfg.SyncthingDevices) {
+		lines = append(lines,
+			theme.Warn.Render("Device not found"))
+	} else {
+		dev := m.cfg.SyncthingDevices[m.syncCursor]
+		lines = append(lines,
+			theme.Header.Render("  "+dev.Name))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Label.Render("Device ID:"))
+		lines = append(lines, "  "+theme.Mono.Render(dev.DeviceID))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Label.Render("Paired: ")+
+			theme.Value.Render(dev.PairedAt))
+	}
+
+	box := theme.Box.Width(bw).Padding(1, 2).
+		Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).
+		Render(" 🔄 Device Details ")
+	footer := theme.Footer.Render(
+		"  backspace back • q quit  ")
+	full := lipgloss.JoinVertical(lipgloss.Center,
+		"", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) viewSyncthingWebUI() string {
+	bw := min(m.width-4, theme.ContentWidth)
+	var lines []string
+	lines = append(lines,
+		theme.Header.Render("🔄 Syncthing Web UI (Tor)"))
+	lines = append(lines, "")
+
+	syncOnion := readOnion(paths.TorSyncthingHostname)
+	if syncOnion == "" {
+		lines = append(lines, "  "+theme.Warn.Render(
+			"Tor address not available yet."))
+	} else {
+		lines = append(lines, "  "+theme.Label.Render("URL:"))
+		lines = append(lines, "  "+theme.Mono.Render(
+			"http://"+syncOnion+":8384"))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Label.Render("User: ")+
+			theme.Mono.Render("admin"))
+		if m.cfg.SyncthingPassword != "" {
+			lines = append(lines, "  "+theme.Label.Render("Pass: ")+
+				theme.Mono.Render(m.cfg.SyncthingPassword))
+		}
+		lines = append(lines, "")
+		lines = append(lines, "  "+
+			theme.Action.Render("[u] full URL for copy/paste"))
+		lines = append(lines, "")
+		lines = append(lines, "  "+theme.Dim.Render(
+			"Open in Tor Browser for advanced settings."))
+	}
+
+	box := theme.Box.Width(bw).Padding(1, 2).
+		Render(strings.Join(lines, "\n"))
+	title := theme.Title.Width(bw).Align(lipgloss.Center).
+		Render(" 🔄 Syncthing Web UI ")
+	footer := theme.Footer.Render(
+		"  u full URL • backspace back • q quit  ")
+	full := lipgloss.JoinVertical(lipgloss.Center,
+		"", title, "", box, "", footer)
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center, full)
+}
+
+func (m Model) syncthingPairedCount() int {
+	return len(m.cfg.SyncthingDevices)
 }
 
 func (m Model) viewLITDetail() string {

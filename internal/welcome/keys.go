@@ -79,6 +79,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.syncPairError = ""
 			m.syncPairSuccess = true
+			m.cfg.SyncthingDevices = append(
+				m.cfg.SyncthingDevices, config.SyncthingDevice{
+					Name:     "Device " + fmt.Sprintf("%d", len(m.cfg.SyncthingDevices)+1),
+					DeviceID: m.syncDeviceInput,
+					PairedAt: time.Now().Format("2006-01-02"),
+				})
+			m.saveCfg()
 			logger.TUI("Syncthing device paired successfully")
 		}
 		return m, nil
@@ -207,6 +214,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			case svSyncthingDetail:
 				m.subview = svNone
+			case svSyncthingDeviceDetail:
+				m.subview = svSyncthingDetail
+			case svSyncthingWebUI:
+				m.subview = svSyncthingDetail
 			case svSyncthingPairInput:
 				m.syncDeviceInput = ""
 				m.syncPairError = ""
@@ -306,11 +317,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "u":
 			if m.subview == svSyncthingDetail {
+				m.subview = svSyncthingWebUI
+				return m, nil
+			}
+			if m.subview == svSyncthingWebUI {
 				syncOnion := readOnion(
 					paths.TorSyncthingHostname)
 				if syncOnion != "" {
 					m.urlTarget = "http://" + syncOnion + ":8384"
-					m.urlReturnTo = svSyncthingDetail
+					m.urlReturnTo = svSyncthingWebUI
 					m.subview = svFullURL
 				}
 				return m, nil
@@ -357,6 +372,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "enter":
+			if m.subview == svSyncthingDetail &&
+				len(m.cfg.SyncthingDevices) > 0 {
+				m.subview = svSyncthingDeviceDetail
+				return m, nil
+			}
 			if m.subview == svLndHubManage &&
 				len(m.cfg.LndHubAccounts) > 0 {
 				m.subview = svLndHubAccountDetail
@@ -369,11 +389,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "up", "k":
+			if m.subview == svSyncthingDetail && m.syncCursor > 0 {
+				m.syncCursor--
+				return m, nil
+			}
 			if m.subview == svLndHubManage && m.hubCursor > 0 {
 				m.hubCursor--
 				return m, nil
 			}
 		case "down", "j":
+			if m.subview == svSyncthingDetail &&
+				m.syncCursor < len(m.cfg.SyncthingDevices)-1 {
+				m.syncCursor++
+				return m, nil
+			}
 			if m.subview == svLndHubManage &&
 				m.hubCursor < len(m.cfg.LndHubAccounts)-1 {
 				m.hubCursor++

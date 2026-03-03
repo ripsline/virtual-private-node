@@ -31,6 +31,8 @@ const (
 	svZeus
 	svSyncthingDetail
 	svSyncthingPairInput
+	svSyncthingDeviceDetail
+	svSyncthingWebUI
 	svLITDetail
 	svLndHubManage
 	svLndHubCreateName
@@ -102,7 +104,7 @@ type statusMsg struct {
 
 type Model struct {
 	cfg                  *config.AppConfig
-	cfgStore             *config.Store // nil = use default store
+	cfgStore             *config.Store
 	version              string
 	activeTab            wTab
 	subview              wSubview
@@ -130,8 +132,10 @@ type Model struct {
 	hubNameInput         string
 	hubDeactivateBalance string
 	syncDeviceInput      string
+	syncDeviceLabel      string
 	syncPairError        string
 	syncPairSuccess      bool
+	syncCursor           int
 }
 
 func NewModel(cfg *config.AppConfig, version string) Model {
@@ -143,8 +147,6 @@ func NewModel(cfg *config.AppConfig, version string) Model {
 	}
 }
 
-// NewTestModel creates a model with an isolated config store
-// for testing.
 func NewTestModel(
 	cfg *config.AppConfig, version string, store *config.Store,
 ) Model {
@@ -153,13 +155,10 @@ func NewTestModel(
 	return m
 }
 
-// saveCfg saves config using the model's store (injectable
-// for tests).
 func (m Model) saveCfg() {
 	config.SaveTo(m.cfgStore, m.cfg)
 }
 
-// Show launches the welcome TUI. Re-launches after shell actions.
 func Show(cfg *config.AppConfig, version string) {
 	for {
 		m := NewModel(cfg, version)
