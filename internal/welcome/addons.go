@@ -41,6 +41,10 @@ func (m Model) addonSyncthingCard(w, h int) string {
 		lines = append(lines, theme.Label.Render("Version:"))
 		lines = append(lines, theme.Value.Render(getSyncthingVersion()))
 		lines = append(lines, "")
+		lines = append(lines, theme.Label.Render("Connections:"))
+		lines = append(lines, theme.Value.Render(
+			fmt.Sprintf("%d paired", len(m.cfg.SyncthingDevices))))
+		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
 		lines = append(lines, theme.Grayed.Render("Requires: "))
