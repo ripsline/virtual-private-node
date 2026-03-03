@@ -432,6 +432,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		default:
 			m = handleSettingsKey(m, key)
+			if m.shellAction != svNone {
+				return m, tea.Quit
+			}
 			return m, nil
 		}
 	}

@@ -16,7 +16,7 @@ and `systemctl`. No wrappers, no abstractions. Your keys, your node.
 - **LND 0.20.0-beta** — Lightning with Tor hidden services (from Dashboard)
 - **Lightning Terminal v0.16.0-alpha** — browser UI for channel management (from Add-ons)
 - **LndHub.go v1.0.2** — Lightning accounts for family, friends, and agents (from Add-ons, built from source)
-- **Syncthing** — automatic LND channel backup over Tor (from Add-ons)
+- **Syncthing** — automatic LND channel backup to your local device (from Add-ons)
 
 ![Screenshot](docs/images/dashboard.png)
 
@@ -181,16 +181,32 @@ LndHub.go is cloned from GitHub at a pinned release tag and compiled
 on your server using the Go toolchain. No prebuilt binaries are downloaded.
 PostgreSQL is installed as the database backend.
 
-**Clearnet note:** Clearnet connections (hybrid P2P mode) are currently
-unencrypted HTTP. Use Tor for private connections. HTTPS support is
-planned for a future release.
+**Clearnet note:** Clearnet connections (hybrid P2P mode) are encrypted
+via a TLS reverse proxy. Tor connections use HTTP through the encrypted
+Tor tunnel. Both are secure in transit.
 
 ### Syncthing Channel Backups
 
-Syncthing automatically syncs your LND`channel.backup` file to
-your local device over Tor. No cloud services. No trust. If your
-VPS dies, recover your channels with your seed phrase and the
-backup file.
+Syncthing automatically syncs your LND `channel.backup` file to
+your local device. No cloud services. No trust. If your VPS dies,
+recover your channels with your seed phrase and the backup file.
+
+The sync connection is direct between your VPS and your device
+over an encrypted channel. Syncthing uses mutual TLS authentication
+with device keys — only devices you explicitly approve can connect.
+Discovery servers and relays are disabled.
+
+**Setup summary:**
+
+1. Install Syncthing on your device from [syncthing.net](https://syncthing.net)
+2. Disable discovery, relays, and NAT traversal in local Syncthing settings
+3. Pair your device from the Add-ons tab in the dashboard
+4. Add the VPS as a remote device in your local Syncthing
+5. Accept the backup folder share and set it to Receive Only
+
+Your `channel.backup` syncs automatically whenever both devices are
+online. The Syncthing web UI on the VPS is accessible over Tor for
+advanced configuration.
 
 For the full setup guide, see
 [Syncthing Setup Guide](docs/syncthing.md).
@@ -201,7 +217,7 @@ For the full setup guide, see
 - All connections through Tor (SOCKS5 port 9050)
 - IPv6 disabled to prevent Tor bypass
 - Stream isolation (separate circuit per connection)
-- UFW firewall: SSH only (+ 9735, 8080, 3000 for hybrid P2P)
+- UFW firewall: SSH only (+ 9735, 8080, 3000 for hybrid P2P, 22000 for Syncthing)
 - Fail2ban: SSH brute-force protection
 - Root SSH disabled after bootstrap
 - Services run as dedicated bitcoin system user
@@ -209,7 +225,9 @@ For the full setup guide, see
 - Signing key hosted on independent keyserver with pinned fingerprint
 - Bad signature detection — any BADSIG is a hard stop
 - Unattended security upgrades with auto-reboot
-- LND channel backup auto-synced via Syncthing over Tor
+- LND channel backup auto-synced via Syncthing (mutual TLS, direct connection, no cloud)
+- Syncthing sync port (22000) rejects unapproved devices via mutual TLS before any data exchange
+- Syncthing web UI accessible only via Tor
 - Bitcoin Core wallet disabled (Lightning-only node)
 
 ### Architecture

@@ -23,7 +23,8 @@ func (m Model) viewDashboard(bw int) string {
 
 	top := lipgloss.JoinHorizontal(lipgloss.Top, svc, "  ", sys)
 	bot := lipgloss.JoinHorizontal(lipgloss.Top, btc, "  ", ln)
-	return lipgloss.JoinVertical(lipgloss.Left, top, "", bot)
+	content := lipgloss.JoinVertical(lipgloss.Left, top, "", bot)
+	return lipgloss.NewStyle().MaxWidth(bw).Render(content)
 }
 
 func (m Model) getBorder(pos cardPos) lipgloss.Style {
