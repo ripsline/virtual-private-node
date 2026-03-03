@@ -262,7 +262,7 @@ func (m Model) viewSyncthingPairInput() string {
 			lines = append(lines, "  "+theme.Dim.Render(
 				"1. Add Remote Device"))
 			lines = append(lines, "  "+theme.Label.Render(
-				"   Device ID:"))
+				"   General → Device ID:"))
 			lines = append(lines, "  "+theme.Mono.Render(
 				"   "+vpsDeviceID))
 			lines = append(lines, "  "+theme.Dim.Render(
@@ -274,9 +274,9 @@ func (m Model) viewSyncthingPairInput() string {
 			lines = append(lines, "  "+theme.Dim.Render(
 				"4. Accept the lnd-backup folder share"))
 			lines = append(lines, "  "+theme.Dim.Render(
-				"   ⚙️ General → set custom Folder Path"))
+				"   General → set custom Folder Path"))
 			lines = append(lines, "  "+theme.Dim.Render(
-				"   ⚙️ Advanced → Folder Type → Receive Only"))
+				"   Advanced → Folder Type → Receive Only"))
 			lines = append(lines, "  "+theme.Dim.Render(
 				"   ✓ Save"))
 		}
