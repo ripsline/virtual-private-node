@@ -928,11 +928,15 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 			return nil
 		}},
 		{name: "Verifying checksum", fn: func() error {
-			output, err := system.RunCombinedOutput("sha256sum",
-				"--ignore-missing", "--check",
-				"/tmp/rlvpn-SHA256SUMS")
+			// exec.Command used directly because sha256sum --check needs
+			// working directory set to /tmp where the tarball was downloaded.
+			cmd := exec.Command("sha256sum", "--ignore-missing",
+				"--check", "rlvpn-SHA256SUMS")
+			cmd.Dir = "/tmp"
+			output, err := cmd.CombinedOutput()
 			if err != nil {
-				return fmt.Errorf("checksum failed: %s", output)
+				return fmt.Errorf("checksum failed: %s",
+					string(output))
 			}
 			return nil
 		}},
