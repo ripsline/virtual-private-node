@@ -111,7 +111,8 @@ func (m Model) addonLndHubCard(w, h int) string {
 	lines = append(lines, theme.Lightning.Render("⚡️ LndHub"))
 	lines = append(lines, "")
 	lines = append(lines, theme.Dim.Render("Lightning accounts"))
-	lines = append(lines, theme.Dim.Render("for family/friends."))
+	lines = append(lines, theme.Dim.Render("for family and"))
+	lines = append(lines, theme.Dim.Render("friends."))
 	lines = append(lines, "")
 
 	if m.cfg.LndHubInstalled {
