@@ -184,17 +184,29 @@ func (m Model) viewSyncthingDetail() string {
 	lines = append(lines, "  "+theme.Dim.Render(
 		"   syncthing.net"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"2. Copy your Device ID from local Syncthing"))
+		"2. In local Syncthing Settings → Connections:"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"3. Press [a] below to pair"))
+		"   • Disable Global Discovery"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"4. In local Syncthing, add remote device:"))
+		"   • Disable Local Discovery"))
+	lines = append(lines, "  "+theme.Dim.Render(
+		"   • Disable Relaying"))
+	lines = append(lines, "  "+theme.Dim.Render(
+		"   • Disable NAT Traversal"))
+	lines = append(lines, "  "+theme.Dim.Render(
+		"3. Copy your Device ID: Actions → Show ID"))
+	lines = append(lines, "  "+theme.Dim.Render(
+		"4. Press [a] below to pair"))
+	lines = append(lines, "  "+theme.Dim.Render(
+		"5. In local Syncthing, add remote device:"))
 	lines = append(lines, "  "+theme.Dim.Render(
 		"   • Paste VPS Device ID shown above"))
 	lines = append(lines, "  "+theme.Dim.Render(
 		"   • Set address shown above"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"5. Accept the backup folder share"))
+		"6. Accept the backup folder share"))
+	lines = append(lines, "  "+theme.Dim.Render(
+		"   • Set folder to Receive Only"))
 
 	lines = append(lines, "")
 	lines = append(lines, "  "+
@@ -205,14 +217,8 @@ func (m Model) viewSyncthingDetail() string {
 	if syncOnion != "" {
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Label.Render("Web UI (Tor):"))
-		lines = append(lines, "  "+theme.Mono.Render(
-			"http://"+syncOnion+":8384"))
-		lines = append(lines, "  "+theme.Label.Render("User: ")+
-			theme.Mono.Render("admin"))
-		if m.cfg.SyncthingPassword != "" {
-			lines = append(lines, "  "+theme.Label.Render("Pass: ")+
-				theme.Mono.Render(m.cfg.SyncthingPassword))
-		}
+		lines = append(lines, "  "+theme.Dim.Render(
+			"Available — press [u] for URL"))
 	}
 
 	box := theme.Box.Width(bw).Padding(1, 2).
@@ -220,7 +226,7 @@ func (m Model) viewSyncthingDetail() string {
 	title := theme.Title.Width(bw).Align(lipgloss.Center).
 		Render(" 🔄 Syncthing Details ")
 	footer := theme.Footer.Render(
-		"  a pair device • backspace back • q quit  ")
+		"  a pair device • u web UI URL • backspace back • q quit  ")
 	full := lipgloss.JoinVertical(lipgloss.Center,
 		"", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height,

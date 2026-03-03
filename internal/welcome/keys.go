@@ -108,19 +108,6 @@ func isAllowedHubNameChar(key string) bool {
 		c == ' ' || c == '-'
 }
 
-// isAllowedSyncIDChar returns true for characters valid in a
-// Syncthing Device ID: uppercase letters, digits, and hyphens.
-func isAllowedSyncIDChar(key string) bool {
-	if len(key) != 1 {
-		return false
-	}
-	c := key[0]
-	return (c >= 'A' && c <= 'Z') ||
-		(c >= 'a' && c <= 'z') ||
-		(c >= '0' && c <= '9') ||
-		c == '-'
-}
-
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -181,9 +168,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			default:
-				if isAllowedSyncIDChar(key) &&
-					len(m.syncDeviceInput) < 63 {
-					m.syncDeviceInput += strings.ToUpper(key)
+				// Handle paste: terminal may send multiple
+				// characters in a single key message
+				for _, ch := range key {
+					if len(m.syncDeviceInput) >= 63 {
+						break
+					}
+					if (ch >= 'A' && ch <= 'Z') ||
+						(ch >= 'a' && ch <= 'z') ||
+						(ch >= '0' && ch <= '9') ||
+						ch == '-' {
+						m.syncDeviceInput += strings.ToUpper(
+							string(ch))
+					}
 				}
 				return m, nil
 			}
@@ -579,13 +576,13 @@ func (m Model) navLeft() Model {
 			m.dashCard = cardBitcoin
 		}
 	case tabPairing:
-		// Single card, no navigation needed
+		// Single card
 	case tabAddons:
 		if m.addonFocus > 0 {
 			m.addonFocus--
 		}
 	case tabSettings:
-		// Single card, no navigation needed
+		// Single card
 	}
 	return m
 }
@@ -600,13 +597,13 @@ func (m Model) navRight() Model {
 			m.dashCard = cardLightning
 		}
 	case tabPairing:
-		// Single card, no navigation needed
+		// Single card
 	case tabAddons:
 		if m.addonFocus < 2 {
 			m.addonFocus++
 		}
 	case tabSettings:
-		// Single card, no navigation needed
+		// Single card
 	}
 	return m
 }

@@ -69,7 +69,6 @@ func fetchStatus(cfg *config.AppConfig) tea.Cmd {
 				s.lndSyncedChain = lndInfo.SyncedChain
 				s.lndSyncedGraph = lndInfo.SyncedGraph
 
-				// Auto-detect wallet if config is stale
 				if !cfg.WalletExists() &&
 					lndInfo.Pubkey != "" {
 					cfg.WalletCreated = true

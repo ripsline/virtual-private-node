@@ -238,20 +238,100 @@ func startSyncthing() error {
 	if err := system.SudoRun("systemctl", "enable", "syncthing"); err != nil {
 		return err
 	}
-	return system.SudoRun("systemctl", "start", "syncthing")
+	if err := system.SudoRun("systemctl", "start", "syncthing"); err != nil {
+		return err
+	}
+
+	// Wait for Syncthing to become ready
+	for i := 0; i < 30; i++ {
+		_, err := system.RunContext(3*time.Second,
+			"curl", "-s", "-o", "/dev/null",
+			"-w", "%{http_code}",
+			"http://127.0.0.1:8384/rest/system/status")
+		if err == nil {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	return nil
+}
+
+// ── Syncthing Backup Folder Registration ─────────────────
+
+// registerBackupFolder adds the lnd-backup directory as a
+// Send Only folder in Syncthing so it can be shared with
+// paired devices.
+func registerBackupFolder() error {
+	apiKey, err := getSyncthingAPIKey()
+	if err != nil {
+		return fmt.Errorf("get API key: %w", err)
+	}
+
+	// Check if folder already exists
+	existing, err := syncthingAPIGet(apiKey,
+		"/rest/config/folders")
+	if err == nil && strings.Contains(existing, "lnd-backup") {
+		return nil
+	}
+
+	// Get local device ID to include in folder config
+	localID := GetSyncthingDeviceID()
+	if localID == "" {
+		return fmt.Errorf("cannot determine local device ID")
+	}
+
+	folder := fmt.Sprintf(`{
+        "id": "lnd-backup",
+        "label": "LND Channel Backup",
+        "path": "%s",
+        "type": "sendonly",
+        "rescanIntervalS": 10,
+        "fsWatcherEnabled": true,
+        "fsWatcherDelayS": 1,
+        "devices": [{"deviceID": %q}]
+    }`, paths.SyncthingBackup, localID)
+
+	if err := syncthingAPIPost(apiKey,
+		"/rest/config/folders", folder); err != nil {
+		return fmt.Errorf("register folder: %w", err)
+	}
+
+	logger.Install("Registered lnd-backup folder in Syncthing")
+	return nil
 }
 
 // ── Syncthing Device Pairing ─────────────────────────────
 
-// GetSyncthingDeviceID returns the VPS Syncthing Device ID.
+// GetSyncthingDeviceID returns the VPS Syncthing Device ID
+// by parsing the config XML. This works even when Syncthing
+// is stopped since the ID is derived from the TLS certificate
+// and stored in the config file.
 func GetSyncthingDeviceID() string {
-	output, err := system.RunContext(5*time.Second,
-		"sudo", "-u", systemUser, "syncthing",
-		"--home="+paths.SyncthingDir, "show-id")
+	output, err := system.SudoRunOutput("cat",
+		paths.SyncthingConfigXML)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(output)
+
+	type device struct {
+		ID   string `xml:"id,attr"`
+		Name string `xml:"name,attr"`
+	}
+	type syncCfg struct {
+		XMLName xml.Name `xml:"configuration"`
+		Devices []device `xml:"device"`
+	}
+
+	var c syncCfg
+	if xml.Unmarshal([]byte(output), &c) != nil {
+		return ""
+	}
+
+	if len(c.Devices) > 0 {
+		return c.Devices[0].ID
+	}
+	return ""
 }
 
 // PairSyncthingDevice adds a remote device to Syncthing and

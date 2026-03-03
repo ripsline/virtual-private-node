@@ -30,7 +30,21 @@ Download Syncthing for your operating system from
 
 Start Syncthing. It opens a web UI at `http://127.0.0.1:8384`.
 
-### Step 3 — Get Your Local Device ID
+### Step 3 — Configure Local Syncthing
+
+In your local Syncthing web UI, go to **Actions → Settings →
+Connections** and disable the following:
+
+- **Global Discovery** — off
+- **Local Discovery** — off
+- **Relaying** — off
+- **NAT Traversal** — off
+
+Click **Save**. This ensures your Syncthing only connects
+directly to your VPS by IP address, with no third-party relay
+or discovery servers involved.
+
+### Step 4 — Get Your Local Device ID
 
 In your local Syncthing web UI:
 
@@ -38,7 +52,7 @@ In your local Syncthing web UI:
 2. Click **Show ID**
 3. Copy the Device ID (looks like `XXXXXXX-XXXXXXX-XXXXXXX-...`)
 
-### Step 4 — Pair Your Device on the VPS
+### Step 5 — Pair Your Device on the VPS
 
 In the VPS dashboard:
 
@@ -51,17 +65,19 @@ In the VPS dashboard:
 The VPS adds your device and shares the backup folder
 automatically.
 
-### Step 5 — Add the VPS in Your Local Syncthing
+### Step 6 — Add the VPS in Your Local Syncthing
 
 In your local Syncthing web UI:
 
 1. Click **Add Remote Device**
 2. Paste the **VPS Device ID** shown on the Syncthing details
    screen in the dashboard
-3. Under **Addresses**, replace `dynamic` with: `tcp://<your-server-ip>:22000`
+3. Under **Addresses**, replace `dynamic` with: `tcp://:22000`
+Use the same IP address you SSH into.
+
 4. Click **Save**
 
-### Step 6 — Accept the Backup Folder
+### Step 7 — Accept the Backup Folder
 
 After the devices connect, your local Syncthing will prompt you
 to accept a shared folder called `lnd-backup`.
@@ -125,19 +141,19 @@ If your VPS is lost:
 
 - Verify both devices are running (green dot in web UI)
 - Check that the VPS address is correct:
-  `tcp://<vps-ip>:22000`
+  `tcp://<your-server-ip>:22000`
 - Check firewall: `sudo ufw status` should show port 22000 open
 
 **Folder not syncing:**
 
 - Check that the folder is shared with both devices
-- VPS side should be **Send Only** or **Send & Receive**
+- VPS side should be **Send Only**
 - Local side should be **Receive Only**
 - Check Syncthing logs: **Actions → Logs** in the web UI
 
 **Web UI access on VPS:**
 
 The Syncthing web UI is available over Tor for advanced
-configuration. The onion address, username, and password are shown
-on the Syncthing details screen in the dashboard. Use Tor Browser
-to access it.
+configuration. The onion address is shown when you press **u**
+on the Syncthing details screen. Username is `admin` and the
+password is shown on screen. Use Tor Browser to access it.

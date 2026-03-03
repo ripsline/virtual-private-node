@@ -37,8 +37,6 @@ func LndVersionStr() string { return lndVersion }
 func NeedsInstall() bool {
 	cfg, err := config.Load()
 	if err != nil {
-		// Config missing or corrupt — check if services are
-		// already running to avoid reinstalling over a working system
 		if system.IsServiceActive("bitcoind") {
 			return false
 		}
@@ -272,7 +270,6 @@ func Run() error {
 		return err
 	}
 
-	// Determine network from pre-seeded config or default
 	cfg := config.Default()
 	if preCfg, err := config.Load(); err == nil {
 		cfg = preCfg
@@ -368,8 +365,6 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	}
 	fmt.Println("  ✅ LND is ready")
 
-	// lncli create needs interactive stdin/stdout — exec.Command is
-	// the correct choice here (system.Run captures output).
 	cmd := exec.Command("sudo", "-u", systemUser, "lncli",
 		"--lnddir=/var/lib/lnd", "--network="+net.LNCLINetwork,
 		"create")
@@ -460,7 +455,6 @@ func RunLNDInstall(cfg *config.AppConfig) error {
 		return nil
 	}
 
-	// Ask P2P mode
 	p2pMode := "tor"
 	p2pMsg := theme.Header.Render("LND P2P Mode") + "\n\n" +
 		theme.Value.Render("  [1] Tor only — Maximum privacy") + "\n" +
@@ -483,9 +477,6 @@ func RunLNDInstall(cfg *config.AppConfig) error {
 	}
 
 	cfg.P2PMode = p2pMode
-
-	// Set LND as installed BEFORE building steps so torrc
-	// includes control port
 	cfg.LNDInstalled = true
 	cfg.Components = "bitcoin+lnd"
 
@@ -577,7 +568,6 @@ func RunP2PModeUpgrade(cfg *config.AppConfig) error {
 		}},
 	}
 
-	// If LndHub is already installed, add proxy steps
 	if cfg.LndHubInstalled {
 		steps = append(steps,
 			installStep{
@@ -709,6 +699,8 @@ func RunSyncthingInstall(cfg *config.AppConfig) error {
 			fn: func() error { return RebuildTorConfig(cfg) }},
 		{name: "Restarting Tor", fn: restartTor},
 		{name: "Starting Syncthing", fn: startSyncthing},
+		{name: "Registering backup folder",
+			fn: registerBackupFolder},
 		{name: "Setting up channel backup watcher",
 			fn: func() error {
 				return setupChannelBackupWatcher(cfg)
@@ -740,7 +732,6 @@ func RunLndHubInstall(cfg *config.AppConfig) error {
 		return nil
 	}
 
-	// Generate secrets
 	dbPassBytes := make([]byte, 16)
 	if _, err := randRead(dbPassBytes); err != nil {
 		return fmt.Errorf("generate db password: %w", err)
@@ -798,7 +789,6 @@ func RunLndHubInstall(cfg *config.AppConfig) error {
 		{name: "Starting LndHub", fn: startLndHub},
 	}
 
-	// Add proxy steps if hybrid mode is active
 	if cfg.P2PMode == "hybrid" && publicIPv4 != "" {
 		steps = append(steps,
 			installStep{
@@ -955,7 +945,6 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 				"/tmp/rlvpn", "/usr/local/bin/rlvpn"); err != nil {
 				return err
 			}
-			// Cleanup
 			os.Remove("/tmp/" + tarball)
 			os.Remove("/tmp/rlvpn-SHA256SUMS")
 			os.Remove("/tmp/rlvpn-SHA256SUMS.asc")
@@ -970,7 +959,6 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 const versionCacheMaxAge = 24 * time.Hour
 
 func CheckLatestVersion() string {
-	// Check cache first
 	if cached := readVersionCache(); cached != "" {
 		return cached
 	}
@@ -1059,7 +1047,7 @@ func setupShellEnvironment(cfg *config.AppConfig) error {
 	bashrc := paths.AdminBashrc
 	data, err := os.ReadFile(bashrc)
 	if err == nil && strings.Contains(string(data), "bitcoin-cli()") {
-		return nil // already present
+		return nil
 	}
 
 	net := cfg.NetworkConfig()
@@ -1089,12 +1077,11 @@ export -f bitcoin-cli
 	return err
 }
 
-// AppendLNCLIToShell adds the lncli wrapper after LND is installed.
 func AppendLNCLIToShell(cfg *config.AppConfig) error {
 	bashrc := paths.AdminBashrc
 	data, err := os.ReadFile(bashrc)
 	if err == nil && strings.Contains(string(data), "lncli()") {
-		return nil // already present
+		return nil
 	}
 
 	net := cfg.NetworkConfig()
@@ -1124,9 +1111,6 @@ export -f lncli
 	return err
 }
 
-// randRead and hexEncode to avoid importing crypto/rand and
-// encoding/hex in the setup file header clutter. They're thin
-// wrappers.
 func randRead(b []byte) (int, error) {
 	return randReadImpl(b)
 }
