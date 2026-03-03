@@ -400,6 +400,17 @@ func syncthingAPIPost(apiKey, endpoint, body string) error {
 	return err
 }
 
+func syncthingAPIPut(apiKey, endpoint, body string) error {
+	_, err := system.RunContext(10*time.Second,
+		"curl", "-s",
+		"-X", "PUT",
+		"-H", "X-API-Key: "+apiKey,
+		"-H", "Content-Type: application/json",
+		"-d", body,
+		"http://127.0.0.1:8384"+endpoint)
+	return err
+}
+
 func syncthingAPIGet(apiKey, endpoint string) (string, error) {
 	return system.RunContext(10*time.Second,
 		"curl", "-s",
@@ -444,7 +455,7 @@ func addDeviceToBackupFolder(
 			if err != nil {
 				return err
 			}
-			return syncthingAPIPost(apiKey,
+			return syncthingAPIPut(apiKey,
 				"/rest/config/folders/"+f.ID,
 				string(updated))
 		}
