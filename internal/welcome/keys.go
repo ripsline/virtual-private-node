@@ -686,17 +686,7 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 		}
 		m.shellAction = svSyncthingInstall
 		return m, tea.Quit
-	case 1: // LIT
-		if m.cfg.LITInstalled {
-			m.subview = svLITDetail
-			return m, nil
-		}
-		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-			return m, nil
-		}
-		m.shellAction = svLITInstall
-		return m, tea.Quit
-	case 2: // LndHub
+	case 1: // LndHub
 		if m.cfg.LndHubInstalled {
 			m.hubCursor = 0
 			m.subview = svLndHubManage
@@ -706,6 +696,16 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.shellAction = svLndHubInstall
+		return m, tea.Quit
+	case 2: // LIT
+		if m.cfg.LITInstalled {
+			m.subview = svLITDetail
+			return m, nil
+		}
+		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+			return m, nil
+		}
+		m.shellAction = svLITInstall
 		return m, tea.Quit
 	}
 	return m, nil

@@ -23,8 +23,7 @@ func (m Model) viewDashboard(bw int) string {
 
 	top := lipgloss.JoinHorizontal(lipgloss.Top, svc, "  ", sys)
 	bot := lipgloss.JoinHorizontal(lipgloss.Top, btc, "  ", ln)
-	content := lipgloss.JoinVertical(lipgloss.Left, top, "", bot)
-	return lipgloss.NewStyle().MaxWidth(bw).Render(content)
+	return lipgloss.JoinVertical(lipgloss.Left, top, "", bot)
 }
 
 func (m Model) getBorder(pos cardPos) lipgloss.Style {
@@ -36,7 +35,7 @@ func (m Model) getBorder(pos cardPos) lipgloss.Style {
 
 func (m Model) cardServicesView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("🚦 Services"))
+	lines = append(lines, theme.Header.Render("🛠️ Services"))
 	lines = append(lines, "")
 
 	names := []string{"tor", "bitcoind"}
@@ -89,7 +88,7 @@ func (m Model) cardServicesView(w, h int) string {
 
 func (m Model) cardSystemView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("💾 System"))
+	lines = append(lines, theme.Header.Render("💿 System"))
 	lines = append(lines, "")
 
 	if m.status != nil {

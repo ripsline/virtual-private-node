@@ -18,11 +18,11 @@ func (m Model) viewAddons(bw int) string {
 	cardH := theme.BoxHeight
 
 	syncCard := m.addonSyncthingCard(thirdW, cardH)
-	litCard := m.addonLITCard(thirdW, cardH)
 	hubCard := m.addonLndHubCard(thirdW, cardH)
+	litCard := m.addonLITCard(thirdW, cardH)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top,
-		syncCard, "  ", litCard, "  ", hubCard)
+		syncCard, "  ", hubCard, "  ", litCard)
 }
 
 func (m Model) addonSyncthingCard(w, h int) string {
@@ -43,7 +43,7 @@ func (m Model) addonSyncthingCard(w, h int) string {
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requirements: "))
+		lines = append(lines, theme.Grayed.Render("Requires: "))
 		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+
@@ -84,7 +84,7 @@ func (m Model) addonLITCard(w, h int) string {
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select for details ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requirements: "))
+		lines = append(lines, theme.Grayed.Render("Requires: "))
 		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+
@@ -94,7 +94,7 @@ func (m Model) addonLITCard(w, h int) string {
 	}
 
 	border := theme.NormalBorder
-	if m.addonFocus == 1 {
+	if m.addonFocus == 2 {
 		if (m.cfg.HasLND() && m.cfg.WalletExists()) ||
 			m.cfg.LITInstalled {
 			border = theme.SelectedBorder
@@ -134,7 +134,7 @@ func (m Model) addonLndHubCard(w, h int) string {
 		lines = append(lines, "")
 		lines = append(lines, theme.Action.Render("Select to manage ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
-		lines = append(lines, theme.Grayed.Render("Requirement: "))
+		lines = append(lines, theme.Grayed.Render("Requires: "))
 		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+
@@ -144,7 +144,7 @@ func (m Model) addonLndHubCard(w, h int) string {
 	}
 
 	border := theme.NormalBorder
-	if m.addonFocus == 2 {
+	if m.addonFocus == 1 {
 		if (m.cfg.HasLND() && m.cfg.WalletExists()) ||
 			m.cfg.LndHubInstalled {
 			border = theme.SelectedBorder
@@ -194,7 +194,7 @@ func (m Model) viewSyncthingDetail() string {
 	lines = append(lines, "  "+theme.Dim.Render(
 		"1. Download & verify Syncthing — syncthing.net"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"2. ⚙ Actions → ⚙ Settings → Connections"))
+		"2. ⚙ Actions → ⚙ Settings → Connections → unselect:"))
 	lines = append(lines, "  "+theme.Dim.Render(
 		"   ☐ Enable NAT traversal"))
 	lines = append(lines, "  "+theme.Dim.Render(
@@ -273,7 +273,11 @@ func (m Model) viewSyncthingPairInput() string {
 			lines = append(lines, "  "+theme.Dim.Render(
 				"4. Accept the lnd-backup folder share"))
 			lines = append(lines, "  "+theme.Dim.Render(
-				"   Set folder to Receive Only"))
+				"   ⚙️ General → set custom Folder Path"))
+			lines = append(lines, "  "+theme.Dim.Render(
+				"   ⚙️ Advanced → Folder Type → Receive Only"))
+			lines = append(lines, "  "+theme.Dim.Render(
+				"   ✓ Save"))
 		}
 	}
 
