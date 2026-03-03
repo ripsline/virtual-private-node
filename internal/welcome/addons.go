@@ -195,9 +195,9 @@ func (m Model) viewSyncthingDetail() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, theme.Header.Render("  Setup"))
+	lines = append(lines, theme.Header.Render("  Local Setup:"))
 	lines = append(lines, "  "+theme.Dim.Render(
-		"1. Download & verify Syncthing — syncthing.net"))
+		"1. download & verify Syncthing — syncthing.net"))
 	lines = append(lines, "  "+theme.Dim.Render(
 		"2. ⚙ Actions → ⚙ Settings → Connections → unselect:"))
 	lines = append(lines, "  "+theme.Dim.Render(
