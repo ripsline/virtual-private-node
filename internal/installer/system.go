@@ -25,13 +25,16 @@ func checkOS() error {
 	}
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "VERSION_ID=") {
-			ver := strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), `"`)
+			ver := strings.Trim(
+				strings.TrimPrefix(line, "VERSION_ID="), `"`)
 			verNum, err := strconv.Atoi(ver)
 			if err != nil {
-				return fmt.Errorf("cannot parse Debian version: %s", ver)
+				return fmt.Errorf(
+					"cannot parse Debian version: %s", ver)
 			}
 			if verNum < 13 {
-				return fmt.Errorf("requires Debian 13+, found %s", ver)
+				return fmt.Errorf(
+					"requires Debian 13+, found %s", ver)
 			}
 			return nil
 		}
@@ -66,7 +69,8 @@ func createBitcoinDirs(username string) error {
 		if err := system.SudoRun("chown", d.owner, d.path); err != nil {
 			return err
 		}
-		if err := system.SudoRun("chmod", fmt.Sprintf("%o", d.mode), d.path); err != nil {
+		if err := system.SudoRun("chmod",
+			fmt.Sprintf("%o", d.mode), d.path); err != nil {
 			return fmt.Errorf("chmod %s: %w", d.path, err)
 		}
 	}
@@ -79,21 +83,25 @@ net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
 `
-	if err := system.SudoWriteFile(paths.DisableIPv6Conf, []byte(content), 0644); err != nil {
+	if err := system.SudoWriteFile(
+		paths.DisableIPv6Conf, []byte(content), 0644); err != nil {
 		return err
 	}
 	return system.SudoRunSilent("sysctl", "--system")
 }
 
 func configureFirewall(cfg *config.AppConfig) error {
-	if err := system.SudoRun("apt-get", "install", "-y", "-qq", "ufw"); err != nil {
+	if err := system.SudoRun("apt-get", "install",
+		"-y", "-qq", "ufw"); err != nil {
 		return err
 	}
 
 	ufwDefault, err := system.SudoRunOutput("cat", paths.UFWDefault)
 	if err == nil {
-		content := strings.ReplaceAll(ufwDefault, "IPV6=yes", "IPV6=no")
-		system.SudoWriteFile(paths.UFWDefault, []byte(content), 0644)
+		content := strings.ReplaceAll(
+			ufwDefault, "IPV6=yes", "IPV6=no")
+		system.SudoWriteFile(
+			paths.UFWDefault, []byte(content), 0644)
 	}
 
 	commands := [][]string{
@@ -103,20 +111,35 @@ func configureFirewall(cfg *config.AppConfig) error {
 	}
 
 	if cfg.HasLND() && cfg.P2PMode == "hybrid" {
-		commands = append(commands, []string{"ufw", "allow", "9735/tcp"})
-		commands = append(commands, []string{"ufw", "allow", "8080/tcp"})
+		commands = append(commands,
+			[]string{"ufw", "allow", "9735/tcp"})
+		commands = append(commands,
+			[]string{"ufw", "allow", "8080/tcp"})
 	}
 
-	// LndHub clearnet access goes through the TLS proxy on the external port.
-	// The internal LndHub port (3004) is never exposed.
+	// LndHub clearnet access goes through the TLS proxy on
+	// the external port. The internal LndHub port (3004) is
+	// never exposed.
 	if cfg.LndHubInstalled && cfg.P2PMode == "hybrid" {
-		commands = append(commands, []string{"ufw", "allow", paths.LndHubExternalPort + "/tcp"})
+		commands = append(commands,
+			[]string{"ufw", "allow",
+				paths.LndHubExternalPort + "/tcp"})
 	}
 
-	commands = append(commands, []string{"ufw", "--force", "enable"})
+	// Syncthing sync protocol — clearnet direct connection.
+	// Mutual TLS with explicit device approval ensures only
+	// paired devices can connect.
+	if cfg.SyncthingInstalled {
+		commands = append(commands,
+			[]string{"ufw", "allow", "22000/tcp"})
+	}
+
+	commands = append(commands,
+		[]string{"ufw", "--force", "enable"})
 
 	for _, args := range commands {
-		if err := system.SudoRun(args[0], args[1:]...); err != nil {
+		if err := system.SudoRun(
+			args[0], args[1:]...); err != nil {
 			return err
 		}
 	}
@@ -152,7 +175,8 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 }
 
 func installFail2ban() error {
-	return system.SudoRun("apt-get", "install", "-y", "-qq", "fail2ban")
+	return system.SudoRun("apt-get", "install",
+		"-y", "-qq", "fail2ban")
 }
 
 func configureFail2ban() error {
@@ -169,7 +193,8 @@ bantime = 600
 		[]byte(content), 0644); err != nil {
 		return err
 	}
-	if err := system.SudoRun("systemctl", "enable", "fail2ban"); err != nil {
+	if err := system.SudoRun("systemctl", "enable",
+		"fail2ban"); err != nil {
 		return err
 	}
 	return system.SudoRun("systemctl", "restart", "fail2ban")

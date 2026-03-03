@@ -30,6 +30,9 @@ const (
 	svLightning
 	svZeus
 	svSyncthingDetail
+	svSyncthingPairInput
+	svSyncthingDeviceDetail
+	svSyncthingWebUI
 	svLITDetail
 	svLndHubManage
 	svLndHubCreateName
@@ -75,6 +78,10 @@ type lndhubDeactivatedMsg struct {
 	err     error
 }
 
+type syncthingPairedMsg struct {
+	err error
+}
+
 type statusMsg struct {
 	services                     map[string]bool
 	diskTotal, diskUsed, diskPct string
@@ -97,7 +104,7 @@ type statusMsg struct {
 
 type Model struct {
 	cfg                  *config.AppConfig
-	cfgStore             *config.Store // nil = use default store
+	cfgStore             *config.Store
 	version              string
 	activeTab            wTab
 	subview              wSubview
@@ -124,6 +131,11 @@ type Model struct {
 	hubCursor            int
 	hubNameInput         string
 	hubDeactivateBalance string
+	syncDeviceInput      string
+	syncDeviceLabel      string
+	syncPairError        string
+	syncPairSuccess      bool
+	syncCursor           int
 }
 
 func NewModel(cfg *config.AppConfig, version string) Model {
@@ -135,19 +147,18 @@ func NewModel(cfg *config.AppConfig, version string) Model {
 	}
 }
 
-// NewTestModel creates a model with an isolated config store for testing.
-func NewTestModel(cfg *config.AppConfig, version string, store *config.Store) Model {
+func NewTestModel(
+	cfg *config.AppConfig, version string, store *config.Store,
+) Model {
 	m := NewModel(cfg, version)
 	m.cfgStore = store
 	return m
 }
 
-// saveCfg saves config using the model's store (injectable for tests).
 func (m Model) saveCfg() {
 	config.SaveTo(m.cfgStore, m.cfg)
 }
 
-// Show launches the welcome TUI. Re-launches after shell actions.
 func Show(cfg *config.AppConfig, version string) {
 	for {
 		m := NewModel(cfg, version)
@@ -179,7 +190,9 @@ func Show(cfg *config.AppConfig, version string) {
 				cfg = u
 			}
 			if err := installer.AppendLNCLIToShell(cfg); err != nil {
-				logger.TUI("Warning: failed to add lncli wrapper: %v", err)
+				logger.TUI(
+					"Warning: failed to add lncli wrapper: %v",
+					err)
 			}
 			continue
 		case svLITInstall:
@@ -243,7 +256,8 @@ func fetchLatestVersion() tea.Cmd {
 func createLndHubAccountCmd(adminToken string) tea.Cmd {
 	return func() tea.Msg {
 		account, err := installer.CreateLndHubAccount(adminToken)
-		return lndhubAccountCreatedMsg{account: account, err: err}
+		return lndhubAccountCreatedMsg{
+			account: account, err: err}
 	}
 }
 
@@ -251,6 +265,14 @@ func deactivateLndHubAccountCmd(login string) tea.Cmd {
 	return func() tea.Msg {
 		balance, _ := installer.GetUserBalance(login)
 		err := installer.DeactivateUser(login)
-		return lndhubDeactivatedMsg{balance: balance, err: err}
+		return lndhubDeactivatedMsg{
+			balance: balance, err: err}
+	}
+}
+
+func pairSyncthingDeviceCmd(deviceID string) tea.Cmd {
+	return func() tea.Msg {
+		err := installer.PairSyncthingDevice(deviceID)
+		return syncthingPairedMsg{err: err}
 	}
 }

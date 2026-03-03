@@ -5,13 +5,13 @@ Verify the bootstrap binary before installation.
 ### Import the release signing key
 
 ```bash
-curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/docs/ripsline-signing-key.asc | gpg --import
+gpg --keyserver hkps://keys.openpgp.org --recv-keys AFA0EBACDC9A4C4AA7B0154AC97CE10F170BA5FE
 ```
 
 ### Download the release files
 
 ```bash
-VERSION="0.2.1"
+VERSION="0.3.0"
 wget -q "https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}/rlvpn-${VERSION}-amd64.tar.gz"
 wget -q "https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}/SHA256SUMS"
 wget -q "https://github.com/ripsline/virtual-private-node/releases/download/v${VERSION}/SHA256SUMS.asc"

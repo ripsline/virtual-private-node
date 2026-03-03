@@ -35,7 +35,7 @@ func (m Model) getBorder(pos cardPos) lipgloss.Style {
 
 func (m Model) cardServicesView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("🚦 Services"))
+	lines = append(lines, theme.Header.Render(" Services"))
 	lines = append(lines, "")
 
 	names := []string{"tor", "bitcoind"}
@@ -88,7 +88,7 @@ func (m Model) cardServicesView(w, h int) string {
 
 func (m Model) cardSystemView(w, h int) string {
 	var lines []string
-	lines = append(lines, theme.Header.Render("💾 System"))
+	lines = append(lines, theme.Header.Render(" System"))
 	lines = append(lines, "")
 
 	if m.status != nil {
