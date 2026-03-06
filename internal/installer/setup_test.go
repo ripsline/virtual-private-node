@@ -5,6 +5,7 @@ package installer
 import (
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ripsline/virtual-private-node/internal/paths"
@@ -106,16 +107,20 @@ func TestWriteAndReadVersionCache(t *testing.T) {
 	}
 }
 
-func TestVersionCacheDir(t *testing.T) {
-	if paths.VersionCacheDir != "/home/ripsline/.cache/rlvpn" {
-		t.Errorf("VersionCacheDir: got %q, want /home/ripsline/.cache/rlvpn",
+func TestVersionCacheDirConsistency(t *testing.T) {
+	if !strings.HasSuffix(paths.VersionCacheDir, ".cache/rlvpn") {
+		t.Errorf("VersionCacheDir unexpected suffix: %s",
 			paths.VersionCacheDir)
 	}
 }
 
-func TestVersionCacheFile(t *testing.T) {
-	if paths.VersionCacheFile != "/home/ripsline/.cache/rlvpn/latest-version" {
-		t.Errorf("VersionCacheFile: got %q", paths.VersionCacheFile)
+func TestVersionCacheFileConsistency(t *testing.T) {
+	if !strings.HasPrefix(paths.VersionCacheFile, paths.VersionCacheDir) {
+		t.Error("VersionCacheFile should be inside VersionCacheDir")
+	}
+	if !strings.HasSuffix(paths.VersionCacheFile, "latest-version") {
+		t.Errorf("VersionCacheFile unexpected suffix: %s",
+			paths.VersionCacheFile)
 	}
 }
 

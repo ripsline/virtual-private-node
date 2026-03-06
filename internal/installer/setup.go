@@ -3,6 +3,7 @@
 package installer
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -296,23 +297,19 @@ func buildSteps(cfg *config.AppConfig) []installStep {
 		{name: "Creating directories",
 			fn: func() error { return createBitcoinDirs(systemUser) }},
 		{name: "Disabling IPv6", fn: disableIPv6},
-		{name: "Configuring firewall",
-			fn: func() error { return configureFirewall(cfg) }},
 		{name: "Installing GPG", fn: ensureGPG},
-		{name: "Importing Bitcoin Core signing keys",
-			fn: importBitcoinCoreKeys},
-		{name: "Installing Tor", fn: installTor},
+		{name: "Installing Tor + torsocks", fn: installTor},
 		{name: "Configuring Tor",
 			fn: func() error { return RebuildTorConfig(cfg) }},
 		{name: "Adding user to debian-tor group",
 			fn: func() error { return addUserToTorGroup(systemUser) }},
 		{name: "Starting Tor", fn: restartTor},
+		{name: "Configuring firewall",
+			fn: func() error { return configureFirewall(cfg) }},
+		{name: "Importing Bitcoin Core signing keys",
+			fn: importBitcoinCoreKeys},
 		{name: "Downloading Bitcoin Core " + bitcoinVersion,
 			fn: func() error { return downloadBitcoin(bitcoinVersion) }},
-		{name: "Downloading Bitcoin Core signatures",
-			fn: func() error {
-				return downloadBitcoinSigFile(bitcoinVersion)
-			}},
 		{name: "Verifying Bitcoin Core signatures (2/5)",
 			fn: func() error { return verifyBitcoinCoreSigs(2) }},
 		{name: "Verifying Bitcoin Core checksum", fn: verifyBitcoin},
@@ -341,15 +338,22 @@ func buildSteps(cfg *config.AppConfig) []installStep {
 func RunWalletCreation(cfg *config.AppConfig) error {
 	net := cfg.NetworkConfig()
 	info := theme.Header.Render("Create Your LND Wallet") + "\n\n" +
-		theme.Value.Render("LND will ask you to:") + "\n\n" +
+		theme.Warning.Render("⚠️  IMPORTANT: Read before proceeding") + "\n\n" +
+		theme.Value.Render("  LND will display your 24-word seed phrase") + "\n" +
+		theme.Value.Render("  in the terminal. It is shown ONCE and") + "\n" +
+		theme.Value.Render("  cannot be displayed again.") + "\n\n" +
+		theme.Value.Render("  Before proceeding:") + "\n" +
+		theme.Value.Render("  • Have pen and paper ready, or") + "\n" +
+		theme.Value.Render("  • Have your password manager open") + "\n\n" +
+		theme.Value.Render("  LND will ask you to:") + "\n" +
 		theme.Value.Render("  1. Enter a wallet password (min 8 characters)") + "\n" +
 		theme.Value.Render("  2. Confirm the password") + "\n" +
 		theme.Value.Render("  3. 'n' to create a new seed") + "\n" +
 		theme.Value.Render("  4. Optionally set a cipher seed passphrase") + "\n" +
 		theme.Value.Render("     (press Enter to skip)") + "\n" +
-		theme.Value.Render("  5. Write down your 24-word seed phrase") + "\n\n" +
-		theme.Warning.Render("WARNING: Your seed is the ONLY way to recover funds.") + "\n" +
-		theme.Warning.Render("WARNING: No one can help you if you lose it.") + "\n\n" +
+		theme.Value.Render("  5. WRITE DOWN your 24-word seed phrase") + "\n\n" +
+		theme.Warning.Render("Your seed is the ONLY way to recover funds.") + "\n" +
+		theme.Warning.Render("No one can help you if you lose it.") + "\n\n" +
 		theme.Dim.Render("Enter to proceed • backspace to cancel")
 	if !ShowConfirmBox(info) {
 		return nil
@@ -364,6 +368,7 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 		return err
 	}
 	fmt.Println("  ✅ LND is ready")
+	fmt.Println()
 
 	cmd := exec.Command("sudo", "-u", systemUser, "lncli",
 		"--lnddir=/var/lib/lnd", "--network="+net.LNCLINetwork,
@@ -375,25 +380,45 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 		return fmt.Errorf("lncli create: %w", err)
 	}
 
-	seedMsg := theme.Header.Render("Seed Phrase Confirmation") + "\n\n" +
-		theme.Warning.Render("Have you written down your 24-word seed phrase?") + "\n\n" +
-		theme.Value.Render("Scroll up in your terminal to see your seed.") + "\n" +
-		theme.Value.Render("Once you close this session, it will no longer") + "\n" +
-		theme.Value.Render("be visible anywhere.") + "\n\n" +
-		theme.Value.Render("Make sure you saved it in a secure location.") + "\n\n" +
-		theme.Dim.Render("Press Enter to confirm...")
-	ShowInfoBox(seedMsg)
-
-	unlockMsg := theme.Header.Render("Auto-Unlock Configuration") + "\n\n" +
-		theme.Value.Render("Your wallet password will be stored so LND") + "\n" +
-		theme.Value.Render("starts automatically after reboot.") + "\n\n" +
-		theme.Dim.Render("Press Enter to continue...")
-	ShowInfoBox(unlockMsg)
-
-	fmt.Print("\033[2J\033[H")
-	fmt.Println("\n  ═══════════════════════════════════════════")
-	fmt.Println("    Auto-Unlock Password")
+	// Seed confirmation — blocks until user confirms they saved it.
+	// The seed is visible in the terminal above this prompt.
+	fmt.Println()
 	fmt.Println("  ═══════════════════════════════════════════")
+	fmt.Println("  ⚠️  Your 24-word seed is displayed above.")
+	fmt.Println("  ⚠️  Write it down NOW. It will not be shown again.")
+	fmt.Println()
+	fmt.Println("  Store it safely:")
+	fmt.Println("  • Write on paper and store securely")
+	fmt.Println("  • Save in a password manager")
+	fmt.Println("  • Never share it with anyone")
+	fmt.Println()
+	fmt.Println("  ═══════════════════════════════════════════")
+	fmt.Println()
+	fmt.Print("  Type 'I SAVED MY SEED' to continue: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		confirmation, _ := reader.ReadString('\n')
+		confirmation = strings.TrimSpace(confirmation)
+		if confirmation == "I SAVED MY SEED" {
+			break
+		}
+		fmt.Print("  Please type exactly: I SAVED MY SEED: ")
+	}
+
+	fmt.Println()
+	fmt.Println("  ✅ Seed confirmed.")
+	fmt.Println()
+
+	// Auto-unlock password collection
+	fmt.Println("  ═══════════════════════════════════════════")
+	fmt.Println("    Auto-Unlock Configuration")
+	fmt.Println("  ═══════════════════════════════════════════")
+	fmt.Println()
+	fmt.Println("  Your wallet password will be stored so LND")
+	fmt.Println("  starts automatically after reboot.")
+	fmt.Println()
+
 	var matched bool
 	for attempt := 0; attempt < 3; attempt++ {
 		fmt.Print("  Enter your wallet password: ")
@@ -888,16 +913,16 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 
 	steps := []installStep{
 		{name: "Downloading v" + newVersion, fn: func() error {
-			return system.Download(
+			return system.DownloadRequireTor(
 				baseURL+"/"+tarball, "/tmp/"+tarball)
 		}},
 		{name: "Downloading checksums", fn: func() error {
-			if err := system.Download(
+			if err := system.DownloadRequireTor(
 				baseURL+"/SHA256SUMS",
 				"/tmp/rlvpn-SHA256SUMS"); err != nil {
 				return err
 			}
-			return system.Download(
+			return system.DownloadRequireTor(
 				baseURL+"/SHA256SUMS.asc",
 				"/tmp/rlvpn-SHA256SUMS.asc")
 		}},
@@ -967,8 +992,12 @@ func CheckLatestVersion() string {
 		return cached
 	}
 
-	output, err := system.RunContext(10*time.Second, "curl", "-sL",
-		"https://api.github.com/repos/ripsline/virtual-private-node/releases/latest")
+	args := []string{"curl", "-sL",
+		"https://api.github.com/repos/ripsline/virtual-private-node/releases/latest"}
+	if _, err := exec.LookPath("torsocks"); err == nil {
+		args = append([]string{"torsocks"}, args...)
+	}
+	output, err := system.RunContext(10*time.Second, args[0], args[1:]...)
 	if err != nil {
 		return ""
 	}

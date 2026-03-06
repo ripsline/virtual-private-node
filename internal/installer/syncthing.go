@@ -49,11 +49,17 @@ type syncthingOpts struct {
 
 func installSyncthingRepo() error {
 	system.SudoRun("mkdir", "-p", "/etc/apt/keyrings")
-	if err := system.SudoRun("curl", "-L", "-o",
-		paths.SyncthingKeyring,
-		"https://syncthing.net/release-key.gpg"); err != nil {
+
+	tmpKey := "/tmp/syncthing-release-key.gpg"
+	if err := system.DownloadRequireTor(
+		"https://syncthing.net/release-key.gpg", tmpKey); err != nil {
 		return err
 	}
+	defer os.Remove(tmpKey)
+	if err := system.SudoRun("cp", tmpKey, paths.SyncthingKeyring); err != nil {
+		return err
+	}
+
 	repoLine := `deb [signed-by=` + paths.SyncthingKeyring +
 		`] https://apt.syncthing.net/ syncthing stable-v2`
 	return system.SudoWriteFile(paths.SyncthingSourceList,
@@ -119,7 +125,7 @@ func configureSyncthingAuth(password string) error {
 	system.SudoRunSilent("chown",
 		systemUser+":"+systemUser, paths.SyncthingDir)
 
-	if err := system.SudoRun("sudo", "-u", systemUser, "syncthing",
+	if err := system.SudoRun("-u", systemUser, "syncthing",
 		"generate", "--home="+paths.SyncthingDir); err != nil {
 		return fmt.Errorf("syncthing generate: %w", err)
 	}
@@ -242,13 +248,13 @@ func startSyncthing() error {
 		return err
 	}
 
-	// Wait for Syncthing to become ready
+	// Wait for Syncthing to become ready (lenient — continue regardless)
 	for i := 0; i < 30; i++ {
-		_, err := system.RunContext(3*time.Second,
+		output, err := system.RunContext(3*time.Second,
 			"curl", "-s", "-o", "/dev/null",
 			"-w", "%{http_code}",
 			"http://127.0.0.1:8384/rest/system/status")
-		if err == nil {
+		if err == nil && strings.TrimSpace(output) == "200" {
 			break
 		}
 		time.Sleep(1 * time.Second)

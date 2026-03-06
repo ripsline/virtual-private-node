@@ -46,8 +46,6 @@ const (
 	svLITInstall
 	svSyncthingInstall
 	svLndHubInstall
-	svSystemUpdate
-	svLogView
 	svMacaroonShell
 	svSelfUpdate
 	svP2PUpgrade
@@ -84,6 +82,7 @@ type syncthingPairedMsg struct {
 
 type statusMsg struct {
 	services                     map[string]bool
+	walletDetected               bool
 	diskTotal, diskUsed, diskPct string
 	ramTotal, ramUsed, ramPct    string
 	btcSize, lndSize             string
@@ -113,7 +112,6 @@ type Model struct {
 	svcCursor            int
 	svcConfirm           string
 	sysConfirm           string
-	logSvcName           string
 	addonFocus           int
 	urlTarget            string
 	qrMode               string
@@ -136,6 +134,7 @@ type Model struct {
 	syncPairError        string
 	syncPairSuccess      bool
 	syncCursor           int
+	showSecrets          bool
 }
 
 func NewModel(cfg *config.AppConfig, version string) Model {
@@ -155,8 +154,32 @@ func NewTestModel(
 	return m
 }
 
+// serviceNames returns the list of managed service names based on config state.
+// Used by dashboard, status polling, and service management.
+func serviceNames(cfg *config.AppConfig) []string {
+	names := []string{"tor", "bitcoind"}
+	if cfg.HasLND() {
+		names = append(names, "lnd")
+	}
+	if cfg.LITInstalled {
+		names = append(names, "litd")
+	}
+	if cfg.SyncthingInstalled {
+		names = append(names, "syncthing")
+	}
+	if cfg.LndHubInstalled {
+		names = append(names, "lndhub")
+	}
+	if cfg.LndHubInstalled && cfg.P2PMode == "hybrid" {
+		names = append(names, "lndhub-proxy")
+	}
+	return names
+}
+
 func (m Model) saveCfg() {
-	config.SaveTo(m.cfgStore, m.cfg)
+	if err := config.SaveTo(m.cfgStore, m.cfg); err != nil {
+		logger.TUI("ERROR: failed to save config: %v", err)
+	}
 }
 
 func Show(cfg *config.AppConfig, version string) {
@@ -175,8 +198,6 @@ func Show(cfg *config.AppConfig, version string) {
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
-			m = NewModel(cfg, version)
-			m.activeTab = tabAddons
 			continue
 		case svWalletCreate:
 			installer.RunWalletCreation(cfg)
@@ -200,22 +221,12 @@ func Show(cfg *config.AppConfig, version string) {
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
-			m = NewModel(cfg, version)
-			m.activeTab = tabAddons
 			continue
 		case svSyncthingInstall:
 			installer.RunSyncthingInstall(cfg)
 			if u, e := config.Load(); e == nil {
 				cfg = u
 			}
-			m = NewModel(cfg, version)
-			m.activeTab = tabAddons
-			continue
-		case svSystemUpdate:
-			runSystemUpdate()
-			continue
-		case svLogView:
-			runLogViewer(final.logSvcName, cfg)
 			continue
 		case svSelfUpdate:
 			installer.RunSelfUpdate(cfg, final.latestVersion)

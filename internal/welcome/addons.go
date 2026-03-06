@@ -354,8 +354,17 @@ func (m Model) viewSyncthingWebUI() string {
 		lines = append(lines, "  "+theme.Label.Render("User: ")+
 			theme.Mono.Render("admin"))
 		if m.cfg.SyncthingPassword != "" {
-			lines = append(lines, "  "+theme.Label.Render("Pass: ")+
-				theme.Mono.Render(m.cfg.SyncthingPassword))
+			if m.showSecrets {
+				lines = append(lines, "  "+theme.Label.Render("Pass: ")+
+					theme.Mono.Render(m.cfg.SyncthingPassword))
+				lines = append(lines, "  "+
+					theme.Dim.Render("[s] hide password"))
+			} else {
+				lines = append(lines, "  "+theme.Label.Render("Pass: ")+
+					theme.Dim.Render("••••••••"))
+				lines = append(lines, "  "+
+					theme.Dim.Render("[s] show password"))
+			}
 		}
 		lines = append(lines, "")
 		lines = append(lines, "  "+
@@ -398,8 +407,17 @@ func (m Model) viewLITDetail() string {
 		lines = append(lines, "  "+theme.Mono.Render(fullURL))
 		lines = append(lines, "")
 		if m.cfg.LITPassword != "" {
-			lines = append(lines, "  "+theme.Label.Render("Password: ")+
-				theme.Mono.Render(m.cfg.LITPassword))
+			if m.showSecrets {
+				lines = append(lines, "  "+theme.Label.Render("Password: ")+
+					theme.Mono.Render(m.cfg.LITPassword))
+				lines = append(lines, "  "+
+					theme.Dim.Render("[s] hide password"))
+			} else {
+				lines = append(lines, "  "+theme.Label.Render("Password: ")+
+					theme.Dim.Render("••••••••"))
+				lines = append(lines, "  "+
+					theme.Dim.Render("[s] show password"))
+			}
 		}
 		lines = append(lines, "")
 		lines = append(lines, "  "+

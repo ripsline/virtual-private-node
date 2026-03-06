@@ -13,12 +13,14 @@ import (
 
 func downloadBitcoin(version string) error {
 	filename := fmt.Sprintf("bitcoin-%s-x86_64-linux-gnu.tar.gz", version)
-	url := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/%s", version, filename)
-	shaURL := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS", version)
-	if err := system.Download(url, "/tmp/"+filename); err != nil {
+	baseURL := fmt.Sprintf("https://bitcoincore.org/bin/bitcoin-core-%s", version)
+	if err := system.DownloadRequireTor(baseURL+"/"+filename, "/tmp/"+filename); err != nil {
 		return err
 	}
-	return system.Download(shaURL, "/tmp/SHA256SUMS")
+	if err := system.DownloadRequireTor(baseURL+"/SHA256SUMS", "/tmp/SHA256SUMS"); err != nil {
+		return err
+	}
+	return system.DownloadRequireTor(baseURL+"/SHA256SUMS.asc", "/tmp/SHA256SUMS.asc")
 }
 
 func extractAndInstallBitcoin(version string) error {

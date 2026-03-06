@@ -3,6 +3,8 @@
 package welcome
 
 import (
+	"sync"
+
 	"github.com/ripsline/virtual-private-node/internal/bitcoin"
 	"github.com/ripsline/virtual-private-node/internal/config"
 	"github.com/ripsline/virtual-private-node/internal/lnd"
@@ -15,77 +17,104 @@ import (
 func fetchStatus(cfg *config.AppConfig) tea.Cmd {
 	return func() tea.Msg {
 		s := statusMsg{services: make(map[string]bool)}
+		var wg sync.WaitGroup
+		var mu sync.Mutex
 
-		names := []string{"tor", "bitcoind"}
-		if cfg.HasLND() {
-			names = append(names, "lnd")
-		}
-		if cfg.LITInstalled {
-			names = append(names, "litd")
-		}
-		if cfg.SyncthingInstalled {
-			names = append(names, "syncthing")
-		}
-		if cfg.LndHubInstalled {
-			names = append(names, "lndhub")
-		}
-		if cfg.LndHubInstalled && cfg.P2PMode == "hybrid" {
-			names = append(names, "lndhub-proxy")
-		}
-		for _, name := range names {
-			s.services[name] = system.IsServiceActive(name)
+		// Service checks (fast, run in parallel)
+		for _, name := range serviceNames(cfg) {
+			wg.Add(1)
+			go func(n string) {
+				defer wg.Done()
+				active := system.IsServiceActive(n)
+				mu.Lock()
+				s.services[n] = active
+				mu.Unlock()
+			}(name)
 		}
 
-		disk := system.Disk("/")
-		s.diskTotal = disk.Total
-		s.diskUsed = disk.Used
-		s.diskPct = disk.Percent
+		// Bitcoin info (slow RPC, own goroutine)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			info := bitcoin.GetBlockchainInfo()
+			mu.Lock()
+			s.btcResponding = info.Responding
+			s.btcBlocks = info.Blocks
+			s.btcHeaders = info.Headers
+			s.btcProgress = info.Progress
+			s.btcSynced = info.Synced
+			mu.Unlock()
+		}()
 
-		mem := system.Memory()
-		s.ramTotal = mem.Total
-		s.ramUsed = mem.Used
-		s.ramPct = mem.Percent
-
-		s.btcSize = system.DirSize(paths.BitcoinDataDir)
-		if cfg.HasLND() {
-			s.lndSize = system.DirSize(paths.LNDDataDir)
-		}
-
-		s.rebootRequired = system.RebootRequired()
-
-		info := bitcoin.GetBlockchainInfo()
-		s.btcResponding = info.Responding
-		s.btcBlocks = info.Blocks
-		s.btcHeaders = info.Headers
-		s.btcProgress = info.Progress
-		s.btcSynced = info.Synced
-
-		if cfg.HasLND() {
-			lndInfo, err := lnd.GetInfo(cfg.Network)
-			if err == nil {
-				s.lndResponding = true
-				s.lndPubkey = lndInfo.Pubkey
-				s.lndChannels = lndInfo.Channels
-				s.lndSyncedChain = lndInfo.SyncedChain
-				s.lndSyncedGraph = lndInfo.SyncedGraph
-
-				if !cfg.WalletExists() &&
-					lndInfo.Pubkey != "" {
-					cfg.WalletCreated = true
-					config.Save(cfg)
-				}
+		// System info (disk, memory — moderate speed)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			disk := system.Disk("/")
+			mem := system.Memory()
+			btcSize := system.DirSize(paths.BitcoinDataDir)
+			var lndSize string
+			if cfg.HasLND() {
+				lndSize = system.DirSize(paths.LNDDataDir)
 			}
+			mu.Lock()
+			s.diskTotal = disk.Total
+			s.diskUsed = disk.Used
+			s.diskPct = disk.Percent
+			s.ramTotal = mem.Total
+			s.ramUsed = mem.Used
+			s.ramPct = mem.Percent
+			s.btcSize = btcSize
+			s.lndSize = lndSize
+			mu.Unlock()
+		}()
+
+		// LND info (slow RPC, own goroutine)
+		if cfg.HasLND() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				lndInfo, err := lnd.GetInfo(cfg.Network)
+				mu.Lock()
+				if err == nil {
+					s.lndResponding = true
+					s.lndPubkey = lndInfo.Pubkey
+					s.lndChannels = lndInfo.Channels
+					s.lndSyncedChain = lndInfo.SyncedChain
+					s.lndSyncedGraph = lndInfo.SyncedGraph
+
+					// Signal wallet detection — do NOT mutate cfg here.
+					// The actual config change happens in Update.
+					if !cfg.WalletExists() && lndInfo.Pubkey != "" {
+						s.walletDetected = true
+					}
+				}
+				mu.Unlock()
+			}()
+
+			// Wallet balance (separate RPC call)
 			if cfg.WalletExists() {
-				bal, err := lnd.GetBalance(cfg.Network)
-				if err == nil && bal.TotalBalance != "" {
-					s.lndBalance = bal.TotalBalance
-				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					bal, err := lnd.GetBalance(cfg.Network)
+					mu.Lock()
+					if err == nil && bal.TotalBalance != "" {
+						s.lndBalance = bal.TotalBalance
+					}
+					mu.Unlock()
+				}()
 			}
 		}
 
+		wg.Wait()
+
+		// Cached public IP (no network call — uses ip route)
 		if cfg.P2PMode == "hybrid" {
 			s.publicIP = system.PublicIPv4()
 		}
+
+		s.rebootRequired = system.RebootRequired()
 
 		return s
 	}

@@ -82,7 +82,7 @@ func importBitcoinCoreKeys() error {
 	imported := 0
 	for _, signer := range bitcoinCoreSigners {
 		keyFile := fmt.Sprintf("/tmp/btc-key-%s.gpg", signer.name)
-		if err := system.Download(signer.keyURL, keyFile); err != nil {
+		if err := system.DownloadRequireTor(signer.keyURL, keyFile); err != nil {
 			logger.Verify("SKIP %s: download failed: %v", signer.name, err)
 			continue
 		}
@@ -109,7 +109,7 @@ func importBitcoinCoreKeys() error {
 func importLNDKey() error {
 	logger.Verify("--- LND key import ---")
 	keyFile := "/tmp/lnd-key-roasbeef.asc"
-	if err := system.Download(lndSigner.keyURL, keyFile); err != nil {
+	if err := system.DownloadRequireTor(lndSigner.keyURL, keyFile); err != nil {
 		logger.Verify("FAIL: download LND signing key: %v", err)
 		return fmt.Errorf("download LND signing key: %w", err)
 	}
@@ -212,7 +212,7 @@ func verifyLNDSig(version string) error {
 	sigURL := fmt.Sprintf(
 		"https://github.com/lightningnetwork/lnd/releases/download/v%s/manifest-roasbeef-v%s.sig",
 		version, version)
-	if err := system.Download(sigURL, sigFile); err != nil {
+	if err := system.DownloadRequireTor(sigURL, sigFile); err != nil {
 		logger.Verify("FAIL: download LND signature: %v", err)
 		return fmt.Errorf("download LND signature: %w", err)
 	}
@@ -249,7 +249,7 @@ func verifyLITSig(version string) error {
 	sigURL := fmt.Sprintf(
 		"https://github.com/lightninglabs/lightning-terminal/releases/download/v%s/manifest-ViktorT-11-v%s.sig",
 		version, version)
-	if err := system.Download(sigURL, sigFile); err != nil {
+	if err := system.DownloadRequireTor(sigURL, sigFile); err != nil {
 		logger.Verify("FAIL: download LIT signature: %v", err)
 		return fmt.Errorf("download LIT signature: %w", err)
 	}
@@ -337,12 +337,6 @@ func gpgHasFingerprint(fingerprint string) bool {
 		return false
 	}
 	return strings.Contains(output, fingerprint)
-}
-
-func downloadBitcoinSigFile(version string) error {
-	url := fmt.Sprintf(
-		"https://bitcoincore.org/bin/bitcoin-core-%s/SHA256SUMS.asc", version)
-	return system.Download(url, "/tmp/SHA256SUMS.asc")
 }
 
 // ParseGoodSigCount counts GOODSIG lines in GPG status output.

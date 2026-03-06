@@ -4,6 +4,7 @@ package welcome
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -27,6 +28,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.fetchInFlight = false
 		m.status = &msg
+		// Handle wallet auto-detection (moved from fetchStatus to avoid data race)
+		if msg.walletDetected && !m.cfg.WalletCreated {
+			m.cfg.WalletCreated = true
+			m.saveCfg()
+		}
 		return m, nil
 	case latestVersionMsg:
 		m.latestVersion = string(msg)
@@ -169,6 +175,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.syncDeviceInput != "" {
+					// Validate Syncthing Device ID format:
+					// 7 groups of 7 chars separated by hyphens (52 alnum + 6 hyphens = 56 min)
+					id := m.syncDeviceInput
+					parts := strings.Split(id, "-")
+					if len(parts) != 8 {
+						m.syncPairError = "Invalid Device ID format. Expected 8 groups separated by hyphens (e.g., XXXXXXX-XXXXXXX-...)"
+						return m, nil
+					}
+					for _, p := range parts {
+						if len(p) != 7 {
+							m.syncPairError = "Invalid Device ID format. Each group should be 7 characters."
+							return m, nil
+						}
+					}
 					m.syncPairError = ""
 					return m, pairSyncthingDeviceCmd(
 						m.syncDeviceInput)
@@ -314,6 +334,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cfg.P2PMode == "tor" && m.cfg.HasLND() {
 				m.shellAction = svP2PUpgrade
 				return m, tea.Quit
+			}
+		case "s":
+			if m.subview == svSyncthingWebUI ||
+				m.subview == svLITDetail {
+				m.showSecrets = !m.showSecrets
+				return m, nil
 			}
 		case "u":
 			if m.subview == svSyncthingDetail {
@@ -530,10 +556,12 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 		case "a":
 			m.svcConfirm = "start"
 		case "l":
-			m.logSvcName = m.svcName(m.svcCursor)
-			m.shellAction = svLogView
-			m.cardActive = false
-			return m, tea.Quit
+			svc := m.svcName(m.svcCursor)
+			c := exec.Command("sudo", "journalctl",
+				"-u", svc, "-n", "100", "--no-pager")
+			return m, tea.ExecProcess(c, func(err error) tea.Msg {
+				return svcActionDoneMsg{}
+			})
 		}
 	}
 
@@ -544,8 +572,15 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 				action := m.sysConfirm
 				m.sysConfirm = ""
 				if action == "update" {
-					m.shellAction = svSystemUpdate
-					return m, tea.Quit
+					c := exec.Command("bash", "-c",
+						"sudo apt-get update && sudo apt-get upgrade -y"+
+							" && echo && echo '  ✅ Update complete'"+
+							" && echo '  Press Enter to return...'"+
+							" && read")
+					return m, tea.ExecProcess(c,
+						func(err error) tea.Msg {
+							return svcActionDoneMsg{}
+						})
 				}
 				if action == "reboot" {
 					return m, func() tea.Msg {
@@ -712,42 +747,11 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) svcCount() int {
-	n := 2
-	if m.cfg.HasLND() {
-		n++
-	}
-	if m.cfg.LITInstalled {
-		n++
-	}
-	if m.cfg.SyncthingInstalled {
-		n++
-	}
-	if m.cfg.LndHubInstalled {
-		n++
-	}
-	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
-		n++
-	}
-	return n
+	return len(serviceNames(m.cfg))
 }
 
 func (m Model) svcName(i int) string {
-	names := []string{"tor", "bitcoind"}
-	if m.cfg.HasLND() {
-		names = append(names, "lnd")
-	}
-	if m.cfg.LITInstalled {
-		names = append(names, "litd")
-	}
-	if m.cfg.SyncthingInstalled {
-		names = append(names, "syncthing")
-	}
-	if m.cfg.LndHubInstalled {
-		names = append(names, "lndhub")
-	}
-	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
-		names = append(names, "lndhub-proxy")
-	}
+	names := serviceNames(m.cfg)
 	if i < len(names) {
 		return names[i]
 	}

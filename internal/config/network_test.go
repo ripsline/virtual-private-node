@@ -70,15 +70,15 @@ func TestNetworkConfigFromNameTestnet4(t *testing.T) {
 
 func TestNetworkConfigFromNameUnknown(t *testing.T) {
 	net := NetworkConfigFromName("bogus")
-	if net.Name != "testnet4" {
-		t.Errorf("got %q, want testnet4 (default fallback)", net.Name)
+	if net.Name != "mainnet" {
+		t.Errorf("got %q, want mainnet (default fallback)", net.Name)
 	}
 }
 
 func TestNetworkConfigFromNameEmpty(t *testing.T) {
 	net := NetworkConfigFromName("")
-	if net.Name != "testnet4" {
-		t.Errorf("got %q, want testnet4 (default fallback)", net.Name)
+	if net.Name != "mainnet" {
+		t.Errorf("got %q, want mainnet (default fallback)", net.Name)
 	}
 }
 

@@ -4,9 +4,12 @@ package system
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 )
 
 type DiskInfo struct {
@@ -82,21 +85,49 @@ func RebootRequired() bool {
 	return err == nil
 }
 
+// ── Public IP detection ──────────────────────────────────
+
+var (
+	cachedIP string
+	ipOnce   sync.Once
+)
+
 // PublicIPv4 returns the server's public IPv4 address.
-// Only called when the user explicitly chooses hybrid (clearnet+tor) P2P mode
-// during LND installation. This makes a clearnet request by design — the user
-// is opting into clearnet exposure by choosing hybrid mode, so the IP is already
-// being published to Lightning Network peers.
+// Uses the kernel routing table (no network call) and caches the result.
+// Only relevant in hybrid (clearnet+tor) P2P mode.
 func PublicIPv4() string {
-	ip, err := RunContext(5e9, "curl", "-4", "-s", "--max-time", "5", "ifconfig.me")
+	ipOnce.Do(func() {
+		cachedIP = detectPublicIPv4()
+	})
+	return cachedIP
+}
+
+func detectPublicIPv4() string {
+	output, err := RunContext(3*time.Second,
+		"ip", "-4", "route", "get", "1.1.1.1")
 	if err != nil {
 		return ""
 	}
-	ip = strings.TrimSpace(ip)
-	if len(strings.Split(ip, ".")) != 4 {
+	return ParseSourceIP(output)
+}
+
+// ParseSourceIP extracts the source IP from "ip route get" output.
+// Exported for testing.
+func ParseSourceIP(routeOutput string) string {
+	i := strings.Index(routeOutput, "src ")
+	if i == -1 {
 		return ""
 	}
-	return ip
+	fields := strings.Fields(routeOutput[i+4:])
+	if len(fields) == 0 {
+		return ""
+	}
+	ip := net.ParseIP(fields[0])
+	if ip == nil || ip.IsPrivate() || ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return ""
+	}
+	return ip.String()
 }
 
 func fmtKB(kb int) string {

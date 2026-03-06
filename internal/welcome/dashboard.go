@@ -38,22 +38,7 @@ func (m Model) cardServicesView(w, h int) string {
 	lines = append(lines, theme.Header.Render(" Services"))
 	lines = append(lines, "")
 
-	names := []string{"tor", "bitcoind"}
-	if m.cfg.HasLND() {
-		names = append(names, "lnd")
-	}
-	if m.cfg.LITInstalled {
-		names = append(names, "litd")
-	}
-	if m.cfg.SyncthingInstalled {
-		names = append(names, "syncthing")
-	}
-	if m.cfg.LndHubInstalled {
-		names = append(names, "lndhub")
-	}
-	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
-		names = append(names, "lndhub-proxy")
-	}
+	names := serviceNames(m.cfg)
 
 	for i, name := range names {
 		dot := theme.RedDot.Render("●")

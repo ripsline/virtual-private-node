@@ -74,7 +74,7 @@ if id "$ADMIN_USER" &>/dev/null; then
     PASSWORD="(unchanged)"
 else
     set +o pipefail
-    PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
+    PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
     set -o pipefail
     if [ ${#PASSWORD} -lt 25 ]; then
         echo "ERROR: Failed to generate secure password."

@@ -23,10 +23,10 @@ func downloadLND(version string) error {
 		version, filename)
 	manifestURL := fmt.Sprintf("https://github.com/lightningnetwork/lnd/releases/download/v%s/manifest-v%s.txt",
 		version, version)
-	if err := system.Download(url, "/tmp/"+filename); err != nil {
+	if err := system.DownloadRequireTor(url, "/tmp/"+filename); err != nil {
 		return err
 	}
-	if err := system.Download(manifestURL, "/tmp/manifest.txt"); err != nil {
+	if err := system.DownloadRequireTor(manifestURL, "/tmp/manifest.txt"); err != nil {
 		return fmt.Errorf("download LND manifest: %w", err)
 	}
 	return nil
@@ -170,11 +170,19 @@ func startLND() error {
 }
 
 func setupAutoUnlock(password string) error {
-	// Write password to a temp file, then sudo move it
-	tmpPw := "/tmp/rlvpn-wallet-pw.tmp"
-	if err := os.WriteFile(tmpPw, []byte(password), 0600); err != nil {
+	// Write password to a secure temp file, then sudo move it.
+	// os.CreateTemp uses O_EXCL to prevent symlink attacks.
+	tmpFile, err := os.CreateTemp("", "rlvpn-wallet-pw-")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	tmpPw := tmpFile.Name()
+	if _, err := tmpFile.Write([]byte(password)); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPw)
 		return err
 	}
+	tmpFile.Close()
 	defer os.Remove(tmpPw)
 
 	passwordFile := paths.LNDWalletPassword

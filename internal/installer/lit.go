@@ -20,10 +20,10 @@ func downloadLIT(version string) error {
 	manifestURL := fmt.Sprintf(
 		"https://github.com/lightninglabs/lightning-terminal/releases/download/v%s/manifest-v%s.txt",
 		version, version)
-	if err := system.Download(url, "/tmp/"+filename); err != nil {
+	if err := system.DownloadRequireTor(url, "/tmp/"+filename); err != nil {
 		return err
 	}
-	if err := system.Download(manifestURL, "/tmp/lit-manifest.txt"); err != nil {
+	if err := system.DownloadRequireTor(manifestURL, "/tmp/lit-manifest.txt"); err != nil {
 		return fmt.Errorf("download LIT manifest: %w", err)
 	}
 	return nil
@@ -77,16 +77,10 @@ func enableRPCMiddleware() error {
 	if strings.Contains(content, "rpcmiddleware.enable=true") {
 		return nil
 	}
-	addition := "\n# Required for Lightning Terminal\nrpcmiddleware.enable=true\n"
-	if idx := strings.Index(content, "[Application Options]"); idx != -1 {
-		lineEnd := strings.Index(content[idx:], "\n")
-		if lineEnd != -1 {
-			insertAt := idx + lineEnd + 1
-			content = content[:insertAt] + addition + content[insertAt:]
-		}
-	} else {
-		content += addition
-	}
+	// Append to end of file. INI files read top-to-bottom;
+	// this is safe because rpcmiddleware.enable doesn't appear
+	// earlier in the generated config.
+	content += "\n# Required for Lightning Terminal\nrpcmiddleware.enable=true\n"
 	if err := system.SudoWriteFile(paths.LNDConf, []byte(content), 0640); err != nil {
 		return err
 	}

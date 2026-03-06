@@ -51,7 +51,7 @@ func NetworkConfigFromName(name string) *NetworkConfig {
 	case "testnet4":
 		return Testnet4()
 	default:
-		return Testnet4()
+		return Mainnet()
 	}
 }
 
