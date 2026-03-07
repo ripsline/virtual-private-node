@@ -348,8 +348,12 @@ func (m Model) viewSyncthingWebUI() string {
 			"Tor address not available yet."))
 	} else {
 		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		lines = append(lines, "  "+theme.Mono.Render(
-			"http://"+syncOnion+":8384"))
+		if m.showSecrets {
+			lines = append(lines, "  "+theme.Mono.Render(
+				"http://"+syncOnion+":8384"))
+		}
+		lines = append(lines, "  "+
+			theme.Action.Render("[u] full URL for copy/paste"))
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Label.Render("User: ")+
 			theme.Mono.Render("admin"))
@@ -358,17 +362,14 @@ func (m Model) viewSyncthingWebUI() string {
 				lines = append(lines, "  "+theme.Label.Render("Pass: ")+
 					theme.Mono.Render(m.cfg.SyncthingPassword))
 				lines = append(lines, "  "+
-					theme.Dim.Render("[s] hide password"))
+					theme.Action.Render("[s] hide password"))
 			} else {
 				lines = append(lines, "  "+theme.Label.Render("Pass: ")+
 					theme.Dim.Render("••••••••"))
 				lines = append(lines, "  "+
-					theme.Dim.Render("[s] show password"))
+					theme.Action.Render("[s] show password"))
 			}
 		}
-		lines = append(lines, "")
-		lines = append(lines, "  "+
-			theme.Action.Render("[u] full URL for copy/paste"))
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.Dim.Render(
 			"Open in Tor Browser for advanced settings."))
@@ -379,7 +380,7 @@ func (m Model) viewSyncthingWebUI() string {
 	title := theme.Title.Width(bw).Align(lipgloss.Center).
 		Render(" 🔄 Syncthing Web UI ")
 	footer := theme.Footer.Render(
-		"  u full URL • backspace back • q quit  ")
+		"  u full URL • s toggle password • backspace back • q quit  ")
 	full := lipgloss.JoinVertical(lipgloss.Center,
 		"", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height,
@@ -402,31 +403,32 @@ func (m Model) viewLITDetail() string {
 		lines = append(lines,
 			theme.Warn.Render("Tor address not available yet."))
 	} else {
-		fullURL := "https://" + litOnion + ":8443"
 		lines = append(lines, "  "+theme.Label.Render("URL:"))
-		lines = append(lines, "  "+theme.Mono.Render(fullURL))
+		if m.showSecrets {
+			fullURL := "https://" + litOnion + ":8443"
+			lines = append(lines, "  "+theme.Mono.Render(fullURL))
+		}
+		lines = append(lines, "  "+
+			theme.Action.Render("[u] full URL for copy/paste"))
 		lines = append(lines, "")
 		if m.cfg.LITPassword != "" {
 			if m.showSecrets {
 				lines = append(lines, "  "+theme.Label.Render("Password: ")+
 					theme.Mono.Render(m.cfg.LITPassword))
 				lines = append(lines, "  "+
-					theme.Dim.Render("[s] hide password"))
+					theme.Action.Render("[s] hide password"))
 			} else {
 				lines = append(lines, "  "+theme.Label.Render("Password: ")+
 					theme.Dim.Render("••••••••"))
 				lines = append(lines, "  "+
-					theme.Dim.Render("[s] show password"))
+					theme.Action.Render("[s] show password"))
 			}
 		}
-		lines = append(lines, "")
-		lines = append(lines, "  "+
-			theme.Action.Render("[u] full URL for copy/paste"))
 	}
 
 	lines = append(lines, "")
 	lines = append(lines, theme.Dim.Render("  1. Open Tor Browser"))
-	lines = append(lines, theme.Dim.Render("  2. Paste URL above"))
+	lines = append(lines, theme.Dim.Render("  2. Press [u] above to get the URL"))
 	lines = append(lines, theme.Dim.Render(
 		"  3. Ignore security warning"))
 	lines = append(lines, theme.Dim.Render(
@@ -441,7 +443,7 @@ func (m Model) viewLITDetail() string {
 	title := theme.Title.Width(bw).Align(lipgloss.Center).
 		Render(" ⚡️ Lightning Terminal Details ")
 	footer := theme.Footer.Render(
-		"  u full URL • backspace back • q quit  ")
+		"  u full URL • s toggle password • backspace back • q quit  ")
 	full := lipgloss.JoinVertical(lipgloss.Center,
 		"", title, "", box, "", footer)
 	return lipgloss.Place(m.width, m.height,

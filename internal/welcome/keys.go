@@ -4,6 +4,7 @@ package welcome
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -176,7 +177,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				if m.syncDeviceInput != "" {
 					// Validate Syncthing Device ID format:
-					// 7 groups of 7 chars separated by hyphens (52 alnum + 6 hyphens = 56 min)
+					// 8 groups of 7 chars separated by hyphens
 					id := m.syncDeviceInput
 					parts := strings.Split(id, "-")
 					if len(parts) != 8 {
@@ -262,6 +263,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.subview = svNone
 			}
 			return m, nil
+		case "s":
+			if m.subview == svSyncthingWebUI ||
+				m.subview == svLITDetail {
+				m.showSecrets = !m.showSecrets
+				return m, nil
+			}
 		case "a":
 			if m.subview == svSyncthingDetail {
 				m.syncDeviceInput = ""
@@ -272,8 +279,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "m":
 			if m.subview == svZeus {
-				m.shellAction = svMacaroonShell
-				return m, tea.Quit
+				return m, showMacaroonCmd(m.cfg)
 			}
 		case "r":
 			if m.subview == svZeus {
@@ -334,12 +340,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cfg.P2PMode == "tor" && m.cfg.HasLND() {
 				m.shellAction = svP2PUpgrade
 				return m, tea.Quit
-			}
-		case "s":
-			if m.subview == svSyncthingWebUI ||
-				m.subview == svLITDetail {
-				m.showSecrets = !m.showSecrets
-				return m, nil
 			}
 		case "u":
 			if m.subview == svSyncthingDetail {
@@ -557,8 +557,10 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 			m.svcConfirm = "start"
 		case "l":
 			svc := m.svcName(m.svcCursor)
-			c := exec.Command("sudo", "journalctl",
-				"-u", svc, "-n", "100", "--no-pager")
+			c := exec.Command("bash", "-c",
+				"sudo journalctl -u "+svc+" -n 100 --no-pager"+
+					" && echo && echo '  Press Enter to return...'"+
+					" && read")
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {
 				return svcActionDoneMsg{}
 			})
@@ -730,6 +732,9 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
 			return m, nil
 		}
+		if !system.IsServiceActive("lnd") {
+			return m, nil
+		}
 		m.shellAction = svLndHubInstall
 		return m, tea.Quit
 	case 2: // LIT
@@ -738,6 +743,9 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
+			return m, nil
+		}
+		if !system.IsServiceActive("lnd") {
 			return m, nil
 		}
 		m.shellAction = svLITInstall
@@ -756,4 +764,35 @@ func (m Model) svcName(i int) string {
 		return names[i]
 	}
 	return ""
+}
+
+// showMacaroonCmd reads the macaroon hex, writes to a temp file,
+// and displays it via tea.ExecProcess. TUI resumes on same screen.
+func showMacaroonCmd(cfg *config.AppConfig) tea.Cmd {
+	mac := readMacaroonHex(cfg)
+	if mac == "" {
+		return nil
+	}
+
+	tmpFile, err := os.CreateTemp("", "rlvpn-macaroon-")
+	if err != nil {
+		return nil
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.WriteString(mac)
+	tmpFile.Close()
+
+	c := exec.Command("bash", "-c",
+		"echo && echo '  ═══════════════════════════════════════════'"+
+			" && echo '    Admin Macaroon (hex)'"+
+			" && echo '  ═══════════════════════════════════════════'"+
+			" && echo && cat "+tmpPath+
+			" && echo && echo"+
+			" && echo '  Press Enter to return...'"+
+			" && read"+
+			" && rm -f "+tmpPath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		os.Remove(tmpPath)
+		return svcActionDoneMsg{}
+	})
 }

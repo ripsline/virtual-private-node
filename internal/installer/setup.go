@@ -343,14 +343,14 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 		theme.Value.Render("  in the terminal. It is shown ONCE and") + "\n" +
 		theme.Value.Render("  cannot be displayed again.") + "\n\n" +
 		theme.Value.Render("  Before proceeding:") + "\n" +
-		theme.Value.Render("  • Have pen and paper ready, or") + "\n" +
-		theme.Value.Render("  • Have your password manager open") + "\n\n" +
+		theme.Value.Render("  • Make sure you are in a private area") + "\n" +
+		theme.Value.Render("  • Have pen and paper ready") + "\n" +
 		theme.Value.Render("  LND will ask you to:") + "\n" +
 		theme.Value.Render("  1. Enter a wallet password (min 8 characters)") + "\n" +
 		theme.Value.Render("  2. Confirm the password") + "\n" +
-		theme.Value.Render("  3. 'n' to create a new seed") + "\n" +
-		theme.Value.Render("  4. Optionally set a cipher seed passphrase") + "\n" +
-		theme.Value.Render("     (press Enter to skip)") + "\n" +
+		theme.Value.Render("  3. 'n' to create a new seed phrase") + "\n" +
+		theme.Value.Render("  4. Optionally set a cipher seed Passphrase") + "\n" +
+		theme.Value.Render("     (press Enter to skip, most people should skip)") + "\n" +
 		theme.Value.Render("  5. WRITE DOWN your 24-word seed phrase") + "\n\n" +
 		theme.Warning.Render("Your seed is the ONLY way to recover funds.") + "\n" +
 		theme.Warning.Render("No one can help you if you lose it.") + "\n\n" +
@@ -410,13 +410,28 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	fmt.Println("  ✅ Seed confirmed.")
 	fmt.Println()
 
-	// Auto-unlock password collection
-	fmt.Println("  ═══════════════════════════════════════════")
-	fmt.Println("    Auto-Unlock Configuration")
+	// Auto-unlock — show TUI info popup first
+	unlockMsg := theme.Header.Render("Auto-Unlock Configuration") + "\n\n" +
+		theme.Value.Render("Enter your WALLET PASSWORD.") + "\n" +
+		theme.Value.Render("This is the password you entered at the") + "\n" +
+		theme.Value.Render("very start of wallet creation (step 1).") + "\n\n" +
+		theme.Warning.Render("⚠️  This is NOT your seed phrase") + "\n" +
+		theme.Warning.Render("⚠️  This is NOT a cipher seed passphrase") + "\n\n" +
+		theme.Value.Render("Your wallet password will be stored so LND") + "\n" +
+		theme.Value.Render("starts automatically after reboot.") + "\n\n" +
+		theme.Dim.Render("Press Enter to continue...")
+	ShowInfoBox(unlockMsg)
+
+	fmt.Print("\033[2J\033[H")
+	fmt.Println("\n  ═══════════════════════════════════════════")
+	fmt.Println("    Auto-Unlock — Enter Wallet Password")
 	fmt.Println("  ═══════════════════════════════════════════")
 	fmt.Println()
-	fmt.Println("  Your wallet password will be stored so LND")
-	fmt.Println("  starts automatically after reboot.")
+	fmt.Println("  Enter the SAME password you used at the")
+	fmt.Println("  start of wallet creation (step 1).")
+	fmt.Println()
+	fmt.Println("  ⚠️  NOT your seed phrase")
+	fmt.Println("  ⚠️  NOT a cipher seed passphrase")
 	fmt.Println()
 
 	var matched bool

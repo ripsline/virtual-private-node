@@ -4,7 +4,6 @@ package welcome
 
 import (
 	"encoding/hex"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -45,25 +44,6 @@ func readMacaroonHex(cfg *config.AppConfig) string {
 		}
 	}
 	return hex.EncodeToString(data)
-}
-
-func printMacaroon(cfg *config.AppConfig) {
-	mac := readMacaroonHex(cfg)
-	fmt.Print("\033[2J\033[H")
-	fmt.Println()
-	fmt.Println("  ═══════════════════════════════════════════")
-	fmt.Println("    Admin Macaroon (hex)")
-	fmt.Println("  ═══════════════════════════════════════════")
-	fmt.Println()
-	if mac == "" {
-		fmt.Println("  Not available.")
-	} else {
-		fmt.Println(mac)
-	}
-	fmt.Println()
-	fmt.Print("  Press Enter to return...")
-	fmt.Scanln()
-	fmt.Print("\033[2J\033[H")
 }
 
 func getSyncthingVersion() string {

@@ -46,7 +46,6 @@ const (
 	svLITInstall
 	svSyncthingInstall
 	svLndHubInstall
-	svMacaroonShell
 	svSelfUpdate
 	svP2PUpgrade
 )
@@ -190,9 +189,6 @@ func Show(cfg *config.AppConfig, version string) {
 		final := result.(Model)
 
 		switch final.shellAction {
-		case svMacaroonShell:
-			printMacaroon(cfg)
-			continue
 		case svLndHubInstall:
 			installer.RunLndHubInstall(cfg)
 			if u, e := config.Load(); e == nil {

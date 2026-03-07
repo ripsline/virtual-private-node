@@ -73,15 +73,14 @@ func enableRPCMiddleware() error {
 	if err != nil {
 		return err
 	}
-	content := output
-	if strings.Contains(content, "rpcmiddleware.enable=true") {
+	if strings.Contains(output, "rpcmiddleware.enable=true") {
 		return nil
 	}
-	// Append to end of file. INI files read top-to-bottom;
-	// this is safe because rpcmiddleware.enable doesn't appear
-	// earlier in the generated config.
-	content += "\n# Required for Lightning Terminal\nrpcmiddleware.enable=true\n"
-	if err := system.SudoWriteFile(paths.LNDConf, []byte(content), 0640); err != nil {
+	// Append as its own INI section. This must NOT go inside [Tor]
+	// or any other section — LND's config parser would treat it as
+	// an unknown option for that section.
+	output += "\n[rpcmiddleware]\nrpcmiddleware.enable=true\n"
+	if err := system.SudoWriteFile(paths.LNDConf, []byte(output), 0640); err != nil {
 		return err
 	}
 	return system.SudoRun("chown", "root:"+systemUser, paths.LNDConf)
