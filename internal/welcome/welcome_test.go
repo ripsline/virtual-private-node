@@ -464,6 +464,8 @@ func TestAddonsLndHubRequiresLND(t *testing.T) {
 }
 
 func TestAddonsLndHubInstallWithLND(t *testing.T) {
+	// LND service is not running in test environment,
+	// so install should be blocked (shellAction stays svNone).
 	cfg := config.Default()
 	cfg.LNDInstalled = true
 	cfg.WalletCreated = true
@@ -475,9 +477,9 @@ func TestAddonsLndHubInstallWithLND(t *testing.T) {
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
-	if m.shellAction != svLndHubInstall {
-		t.Errorf("enter on LndHub with LND+wallet: got shellAction %d, want %d",
-			m.shellAction, svLndHubInstall)
+	if m.shellAction != svNone {
+		t.Errorf("enter on LndHub with LND not running: got shellAction %d, want %d (svNone — blocked)",
+			m.shellAction, svNone)
 	}
 }
 
