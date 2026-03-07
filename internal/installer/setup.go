@@ -338,7 +338,7 @@ func buildSteps(cfg *config.AppConfig) []installStep {
 func RunWalletCreation(cfg *config.AppConfig) error {
 	net := cfg.NetworkConfig()
 	info := theme.Header.Render("Create Your LND Wallet") + "\n\n" +
-		theme.Warning.Render("⚠️  IMPORTANT: Read before proceeding") + "\n\n" +
+		theme.Warning.Render("IMPORTANT: Read before proceeding") + "\n\n" +
 		theme.Value.Render("  LND will display your 24-word seed phrase") + "\n" +
 		theme.Value.Render("  in the terminal. It is shown ONCE and") + "\n" +
 		theme.Value.Render("  cannot be displayed again.") + "\n\n" +
@@ -412,11 +412,11 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 
 	// Auto-unlock — show TUI info popup first
 	unlockMsg := theme.Header.Render("Auto-Unlock Configuration") + "\n\n" +
-		theme.Value.Render("Enter your WALLET PASSWORD.") + "\n" +
+		theme.Value.Render("Enter your WALLET PASSWORD in the next screen.") + "\n" +
 		theme.Value.Render("This is the password you entered at the") + "\n" +
 		theme.Value.Render("very start of wallet creation (step 1).") + "\n\n" +
-		theme.Warning.Render("⚠️  This is NOT your seed phrase") + "\n" +
-		theme.Warning.Render("⚠️  This is NOT a cipher seed passphrase") + "\n\n" +
+		theme.Warning.Render(" This is NOT your seed phrase") + "\n" +
+		theme.Warning.Render(" This is NOT a cipher seed Passphrase") + "\n\n" +
 		theme.Value.Render("Your wallet password will be stored so LND") + "\n" +
 		theme.Value.Render("starts automatically after reboot.") + "\n\n" +
 		theme.Dim.Render("Press Enter to continue...")
@@ -431,7 +431,7 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	fmt.Println("  start of wallet creation (step 1).")
 	fmt.Println()
 	fmt.Println("  ⚠️  NOT your seed phrase")
-	fmt.Println("  ⚠️  NOT a cipher seed passphrase")
+	fmt.Println("  ⚠️  NOT a cipher seed Passphrase")
 	fmt.Println()
 
 	var matched bool

@@ -21,6 +21,7 @@ package logger
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,6 +34,11 @@ var (
 )
 
 func init() {
+	// Skip log file initialization during tests.
+	// Go test binaries have .test suffix in os.Args[0].
+	if len(os.Args) > 0 && strings.HasSuffix(os.Args[0], ".test") {
+		return
+	}
 	f, err := os.OpenFile(LogPath,
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
 	if err == nil {

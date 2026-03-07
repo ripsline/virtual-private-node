@@ -558,7 +558,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 		case "l":
 			svc := m.svcName(m.svcCursor)
 			c := exec.Command("bash", "-c",
-				"sudo journalctl -u "+svc+" -n 100 --no-pager"+
+				"clear && sudo journalctl -u "+svc+" -n 100 --no-pager"+
 					" && echo && echo '  Press Enter to return...'"+
 					" && read")
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {
@@ -575,7 +575,7 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 				m.sysConfirm = ""
 				if action == "update" {
 					c := exec.Command("bash", "-c",
-						"sudo apt-get update && sudo apt-get upgrade -y"+
+						"clear && sudo apt-get update && sudo apt-get upgrade -y"+
 							" && echo && echo '  ✅ Update complete'"+
 							" && echo '  Press Enter to return...'"+
 							" && read")
@@ -783,7 +783,7 @@ func showMacaroonCmd(cfg *config.AppConfig) tea.Cmd {
 	tmpFile.Close()
 
 	c := exec.Command("bash", "-c",
-		"echo && echo '  ═══════════════════════════════════════════'"+
+		"clear && echo && echo '  ═══════════════════════════════════════════'"+
 			" && echo '    Admin Macaroon (hex)'"+
 			" && echo '  ═══════════════════════════════════════════'"+
 			" && echo && cat "+tmpPath+
