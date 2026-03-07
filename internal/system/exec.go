@@ -123,9 +123,19 @@ func Download(url, dest string) error {
 }
 
 // DownloadRequireTor fetches a URL and fails if torsocks is not available.
-// Used for all downloads after Tor is installed to guarantee Tor routing.
+// Retries up to 3 times to handle intermittent Tor DNS resolution failures.
 func DownloadRequireTor(url, dest string) error {
-	return doDownload(url, dest, true)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		lastErr = doDownload(url, dest, true)
+		if lastErr == nil {
+			return nil
+		}
+		if attempt < 2 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	return lastErr
 }
 
 func doDownload(url, dest string, requireTor bool) error {

@@ -338,16 +338,17 @@ func GetUserBalance(login string) (string, error) {
 		return "unknown", fmt.Errorf("balance query: %w", err)
 	}
 
-	query := `SELECT COALESCE(
+	// validateLogin guarantees login is [a-zA-Z0-9]{1,40},
+	// making SQL injection impossible through this value.
+	query := fmt.Sprintf(`SELECT COALESCE(
         (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.credit_account_id = a.id) -
         (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.debit_account_id = a.id), 0)
         FROM accounts a JOIN users u ON a.user_id = u.id
-        WHERE u.login = :'login' AND a.type = 'current'`
+        WHERE u.login = '%s' AND a.type = 'current'`, login)
 
 	output, err := system.RunContext(10*time.Second,
 		"sudo", "-u", "postgres", "psql",
 		"-t", "-A", "lndhub",
-		"-v", "login="+login,
 		"-c", query)
 	if err != nil {
 		return "unknown", nil
@@ -369,11 +370,12 @@ func DeactivateUser(login string) error {
 		return fmt.Errorf("deactivate: %w", err)
 	}
 
+	// validateLogin guarantees login is [a-zA-Z0-9]{1,40},
+	// making SQL injection impossible through this value.
 	_, err := system.RunContext(10*time.Second,
 		"sudo", "-u", "postgres", "psql",
 		"lndhub",
-		"-v", "login="+login,
-		"-c", "UPDATE users SET deactivated = true WHERE login = :'login'")
+		"-c", fmt.Sprintf("UPDATE users SET deactivated = true WHERE login = '%s'", login))
 	if err != nil {
 		return fmt.Errorf("deactivate user: %w", err)
 	}
