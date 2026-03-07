@@ -735,6 +735,9 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 		if !system.IsServiceActive("lnd") {
 			return m, nil
 		}
+		if m.status != nil && !m.status.btcSynced {
+			return m, nil
+		}
 		m.shellAction = svLndHubInstall
 		return m, tea.Quit
 	case 2: // LIT

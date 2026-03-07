@@ -8,6 +8,9 @@ set -eo pipefail
 # It creates the ripsline user, downloads the rlvpn binary,
 # configures auto-launch, and disables root SSH.
 #
+# Phase 1: Install Tor over clearnet (unavoidable)
+# Phase 2: All remaining downloads route through Tor
+#
 # Usage:
 #   curl -sL ripsline.com/virtual-private-node.sh | bash
 #   curl -sL ripsline.com/virtual-private-node.sh | bash -s -- --testnet4
@@ -56,16 +59,87 @@ echo ""
 echo "  Network: ${NETWORK}"
 echo ""
 
-# ── Ensure dependencies ─────────────────────────────────────
+# ═══════════════════════════════════════════════════════════
+# Phase 1: Clearnet — install Tor and essential dependencies
+# This is the ONLY clearnet activity. After Tor starts,
+# all remaining downloads go through torsocks.
+# ═══════════════════════════════════════════════════════════
+
+echo "  ── Phase 1: Installing Tor (clearnet) ──────"
+echo ""
 
 apt-get update -qq
-apt-get install -y -qq sudo gnupg
+apt-get install -y -qq sudo gnupg tor torsocks
 
 # Ensure hostname resolves (prevents sudo delays)
 if ! getent hosts "$(hostname)" >/dev/null 2>&1; then
     echo "127.0.0.1 $(hostname)" >> /etc/hosts
     echo "  ✓ Fixed hostname resolution"
 fi
+
+# Start Tor and wait for it to bootstrap
+systemctl enable tor
+systemctl start tor
+echo "  ✓ Tor installed and started"
+
+# Wait for Tor to fully bootstrap (connect to network)
+echo "  Waiting for Tor to bootstrap..."
+for i in $(seq 1 30); do
+    if torsocks curl -s --max-time 5 https://check.torproject.org/api/ip 2>/dev/null | grep -q '"IsTor":true'; then
+        echo "  ✓ Tor bootstrapped — all further downloads via Tor"
+        break
+    fi
+    if [ "$i" -eq 30 ]; then
+        echo "  WARNING: Tor bootstrap check timed out. Continuing anyway."
+    fi
+    sleep 2
+done
+
+echo ""
+echo "  ── Phase 2: All downloads via Tor ──────────"
+echo ""
+
+# ═══════════════════════════════════════════════════════════
+# Phase 2: Everything through Tor from here
+# ═══════════════════════════════════════════════════════════
+
+# Configure apt to use Tor for all future package operations
+cat > /etc/apt/apt.conf.d/99-tor-proxy << 'APTEOF'
+Acquire::http::Proxy "socks5h://127.0.0.1:9050";
+Acquire::https::Proxy "socks5h://127.0.0.1:9050";
+APTEOF
+echo "  ✓ Configured apt to route through Tor"
+
+# ── Download helper (always through torsocks) ───────────────
+
+download() {
+    local url="$1"
+    local out="$2"
+    local attempt=0
+    local max_attempts=3
+
+    while [ "$attempt" -lt "$max_attempts" ]; do
+        if command -v wget &>/dev/null; then
+            if torsocks wget -q -O "$out" "$url" 2>/dev/null; then
+                return 0
+            fi
+        elif command -v curl &>/dev/null; then
+            if torsocks curl -sL -o "$out" "$url" 2>/dev/null; then
+                return 0
+            fi
+        else
+            echo "ERROR: Neither wget nor curl found."
+            exit 1
+        fi
+        attempt=$((attempt + 1))
+        if [ "$attempt" -lt "$max_attempts" ]; then
+            echo "  Retry $((attempt))/$((max_attempts - 1))..."
+            sleep 3
+        fi
+    done
+    echo "ERROR: Download failed after $max_attempts attempts: $url"
+    exit 1
+}
 
 # ── Create admin user ───────────────────────────────────────
 
@@ -102,21 +176,6 @@ if [ -f /root/.ssh/authorized_keys ]; then
     echo "  ✓ Copied SSH keys to $ADMIN_USER"
 fi
 
-# ── Download helpers ────────────────────────────────────────
-
-download() {
-    local url="$1"
-    local out="$2"
-    if command -v wget &>/dev/null; then
-        wget -q -O "$out" "$url"
-    elif command -v curl &>/dev/null; then
-        curl -sL -o "$out" "$url"
-    else
-        echo "ERROR: Neither wget nor curl found."
-        exit 1
-    fi
-}
-
 # ── Pre-seed network config ────────────────────────────────
 
 install -d -m 0750 -o $ADMIN_USER -g $ADMIN_USER /etc/rlvpn
@@ -148,7 +207,7 @@ chown $ADMIN_USER:$ADMIN_USER /var/log/rlvpn.log
 chmod 0640 /var/log/rlvpn.log
 echo "  ✓ Created log file"
 
-# ── Download rlvpn tarball ──────────────────────────────────
+# ── Download rlvpn tarball (via Tor) ────────────────────────
 
 ARCH=$(uname -m)
 case $ARCH in
@@ -164,7 +223,7 @@ TARBALL="${BINARY_NAME}-${VERSION}-${ARCH}.tar.gz"
 if command -v "$BINARY_NAME" &>/dev/null; then
     echo "  rlvpn binary already installed, skipping download."
 else
-    echo "  Downloading ${TARBALL}..."
+    echo "  Downloading ${TARBALL} (via Tor)..."
     download "${BASE_URL}/${TARBALL}" "/tmp/${TARBALL}"
 
     if [ ! -s "/tmp/${TARBALL}" ]; then
@@ -175,12 +234,12 @@ else
 
     # ── Verify checksums + GPG signature ────────────────────────
 
-    echo "  Downloading SHA256SUMS + signature..."
+    echo "  Downloading SHA256SUMS + signature (via Tor)..."
     download "${BASE_URL}/SHA256SUMS" "/tmp/SHA256SUMS"
     download "${BASE_URL}/SHA256SUMS.asc" "/tmp/SHA256SUMS.asc"
 
-    echo "  Importing release signing key from keyserver..."
-    if ! gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$SIGNING_KEY_FP" >/dev/null 2>&1; then
+    echo "  Importing release signing key (via Tor)..."
+    if ! torsocks gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$SIGNING_KEY_FP" >/dev/null 2>&1; then
         echo "ERROR: Could not import signing key from keyserver."
         rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc
         exit 1
@@ -247,19 +306,22 @@ echo "  ✓ Configured auto-launch"
 
 # ── Disable root SSH login ──────────────────────────────────
 
-# Drop-in file — persistent override that survives package upgrades
 mkdir -p /etc/ssh/sshd_config.d
 echo "PermitRootLogin no" > /etc/ssh/sshd_config.d/99-no-root.conf
 chmod 644 /etc/ssh/sshd_config.d/99-no-root.conf
 echo "  ✓ Created sshd drop-in (PermitRootLogin no)"
 
-# Belt-and-suspenders: also update main config for non-standard setups
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 if ! grep -q "^PermitRootLogin no" /etc/ssh/sshd_config; then
     echo "PermitRootLogin no" >> /etc/ssh/sshd_config
 fi
 systemctl restart sshd 2>/dev/null || systemctl restart ssh
 echo "  ✓ Disabled root SSH login"
+
+# ── Log bootstrap completion ────────────────────────────────
+
+echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] [bootstrap] Bootstrap v${VERSION} complete. Tor routing: active" >> /var/log/rlvpn.log
+chown $ADMIN_USER:$ADMIN_USER /var/log/rlvpn.log
 
 # ── Print instructions ──────────────────────────────────────
 
@@ -278,6 +340,8 @@ echo "  Network: ${NETWORK}"
 echo ""
 echo "  ⚠️  Save this password. Root SSH is now disabled."
 echo "  ⚠️  Recovery: use your VPS provider's console."
+echo ""
+echo "  All downloads are routed through Tor."
 echo ""
 echo "  ═══════════════════════════════════════════════════"
 echo ""

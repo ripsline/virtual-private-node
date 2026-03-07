@@ -140,7 +140,7 @@ func (m Model) addonLndHubCard(w, h int) string {
 		lines = append(lines, theme.Action.Render("Select to manage ▸"))
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
 		lines = append(lines, theme.Grayed.Render("Requires: "))
-		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
+		lines = append(lines, theme.Grayed.Render("BTC synced + LND + Wallet"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+
 			theme.Dim.Render("Not installed"))

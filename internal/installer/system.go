@@ -5,11 +5,14 @@ package installer
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ripsline/virtual-private-node/internal/config"
+	"github.com/ripsline/virtual-private-node/internal/logger"
 	"github.com/ripsline/virtual-private-node/internal/paths"
 	"github.com/ripsline/virtual-private-node/internal/system"
 )
@@ -198,4 +201,37 @@ bantime = 600
 		return err
 	}
 	return system.SudoRun("systemctl", "restart", "fail2ban")
+}
+
+// logTorStatus verifies torsocks is available and Tor is routing
+// traffic correctly. Logs the result for post-install audit.
+// Returns nil even on failure — this is informational, not blocking.
+func logTorStatus() error {
+	if _, err := exec.LookPath("torsocks"); err != nil {
+		logger.Install("WARNING: torsocks not found — downloads may use clearnet")
+		return nil
+	}
+	logger.Install("torsocks available — downloads will route through Tor")
+
+	output, err := system.RunContext(10*time.Second,
+		"torsocks", "curl", "-s", "--max-time", "5",
+		"https://check.torproject.org/api/ip")
+	if err == nil && strings.Contains(output, `"IsTor":true`) {
+		logger.Install("Tor routing CONFIRMED via check.torproject.org")
+	} else {
+		logger.Install("WARNING: Tor routing check failed — verify manually")
+	}
+	return nil
+}
+
+// configureAptTor sets up apt to route all package downloads through
+// Tor's SOCKS proxy. This ensures apt-get install/upgrade commands
+// (GPG, PostgreSQL, Syncthing, fail2ban, unattended-upgrades) don't
+// leak the server's IP to Debian mirrors or third-party repositories.
+func configureAptTor() error {
+	content := `Acquire::http::Proxy "socks5h://127.0.0.1:9050";
+Acquire::https::Proxy "socks5h://127.0.0.1:9050";
+`
+	return system.SudoWriteFile("/etc/apt/apt.conf.d/99-tor-proxy",
+		[]byte(content), 0644)
 }
