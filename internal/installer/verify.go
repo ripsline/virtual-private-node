@@ -132,8 +132,20 @@ func importLNDKey() error {
 
 func importLITKey() error {
 	logger.Verify("--- LIT key import ---")
-	output, err := system.RunCombinedOutput("gpg", "--batch", "--keyserver",
-		"hkps://keyserver.ubuntu.com", "--recv-keys", litSigner.keyID)
+
+	// Download key through torsocks instead of using gpg --keyserver.
+	// This avoids dirmngr proxy issues and ensures Tor routing.
+	keyFile := "/tmp/lit-key-ViktorT-11.asc"
+	keyURL := fmt.Sprintf(
+		"https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x%s",
+		litSigner.keyID)
+	if err := system.DownloadRequireTor(keyURL, keyFile); err != nil {
+		logger.Verify("FAIL: download LIT signing key: %v", err)
+		return fmt.Errorf("download LIT signing key: %w", err)
+	}
+	defer os.Remove(keyFile)
+
+	output, err := system.RunCombinedOutput("gpg", "--batch", "--import", keyFile)
 	if err != nil {
 		logger.Verify("FAIL: import LIT key: %s", output)
 		return fmt.Errorf("import LIT key: %w: %s", err, output)

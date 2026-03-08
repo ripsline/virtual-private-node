@@ -943,11 +943,21 @@ func RunSelfUpdate(cfg *config.AppConfig, newVersion string) error {
 				"/tmp/rlvpn-SHA256SUMS.asc")
 		}},
 		{name: "Importing release key", fn: func() error {
-			if err := system.Run("gpg", "--batch", "--keyserver",
-				"hkps://keys.openpgp.org", "--recv-keys",
-				expectedFP); err != nil {
+			// Download key through torsocks — no dirmngr needed.
+			// Key from independent keyserver, binary from GitHub.
+			keyFile := "/tmp/rlvpn-release-key.asc"
+			keyURL := fmt.Sprintf(
+				"https://keys.openpgp.org/vks/v1/by-fingerprint/%s",
+				expectedFP)
+			if err := system.DownloadRequireTor(keyURL, keyFile); err != nil {
 				return fmt.Errorf(
-					"could not import signing key from keyserver: %w", err)
+					"could not download signing key: %w", err)
+			}
+			defer os.Remove(keyFile)
+			if _, err := system.RunCombinedOutput("gpg",
+				"--batch", "--import", keyFile); err != nil {
+				return fmt.Errorf(
+					"could not import signing key: %w", err)
 			}
 			output, err := system.RunCombinedOutput("gpg",
 				"--batch", "--with-colons",
@@ -1008,12 +1018,13 @@ func CheckLatestVersion() string {
 		return cached
 	}
 
-	args := []string{"curl", "-sL",
-		"https://api.github.com/repos/ripsline/virtual-private-node/releases/latest"}
-	if _, err := exec.LookPath("torsocks"); err == nil {
-		args = append([]string{"torsocks"}, args...)
+	// Version check must go through Tor — no clearnet fallback.
+	if _, err := exec.LookPath("torsocks"); err != nil {
+		return ""
 	}
-	output, err := system.RunContext(10*time.Second, args[0], args[1:]...)
+	output, err := system.RunContext(10*time.Second,
+		"torsocks", "curl", "-sL",
+		"https://api.github.com/repos/ripsline/virtual-private-node/releases/latest")
 	if err != nil {
 		return ""
 	}

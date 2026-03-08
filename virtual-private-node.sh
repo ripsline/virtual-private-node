@@ -239,11 +239,21 @@ else
     download "${BASE_URL}/SHA256SUMS.asc" "/tmp/SHA256SUMS.asc"
 
     echo "  Importing release signing key (via Tor)..."
-    if ! torsocks gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$SIGNING_KEY_FP" >/dev/null 2>&1; then
-        echo "ERROR: Could not import signing key from keyserver."
+    # Download key file through torsocks — no dirmngr, no keyserver protocol.
+    # Key hosted on independent keyserver (not GitHub) so compromising
+    # one source doesn't compromise both the binary and the key.
+    KEY_FILE="/tmp/rlvpn-signing-key.asc"
+    if ! download "https://keys.openpgp.org/vks/v1/by-fingerprint/${SIGNING_KEY_FP}" "$KEY_FILE"; then
+        echo "ERROR: Could not download signing key."
         rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc
         exit 1
     fi
+    if ! gpg --batch --import "$KEY_FILE" >/dev/null 2>&1; then
+        echo "ERROR: Could not import signing key."
+        rm -f /tmp/${TARBALL} /tmp/SHA256SUMS /tmp/SHA256SUMS.asc "$KEY_FILE"
+        exit 1
+    fi
+    rm -f "$KEY_FILE"
 
     echo "  Verifying key fingerprint..."
     if ! gpg --batch --with-colons --list-keys "$SIGNING_KEY_FP" 2>/dev/null | grep -q "^fpr.*${SIGNING_KEY_FP}"; then

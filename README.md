@@ -43,11 +43,11 @@ apt update && apt install -y git curl
 curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash
 ```
 
-This creates a`ripsline` user, downloads the`rlvpn` binary, and
-disables root SSH. Follow the on-screen instructions to SSH in as
+This creates a `ripsline` user, downloads the `rlvpn` binary, and
+disables root SSH. Follow the on-screen instructions to SSH in as 
 `ripsline` — Bitcoin Core begins installing and syncing automatically.
 
-For testnet4:
+For testnet4 (developers usually):
 
 ```bash
 curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash -s -- --testnet4
@@ -55,12 +55,12 @@ curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/vi
 
 ### Dashboard
 
-Every SSH login as`ripsline` opens a dashboard with four tabs:
+Every SSH login as `ripsline` opens a dashboard with four tabs:
 
 - **Dashboard** — Services (with logs), System, Bitcoin, and Lightning cards
 - **Pairing** — Zeus wallet connection with QR codes (Tor and clearnet)
-- **Add-ons** — install Lightning Terminal, LndHub, and Syncthing
-- **Settings** — self-update
+- **Add-ons** — install Syncthing, LndHub, and Lightning Terminal
+- **Settings** — update to new version
 
 Press`q` to drop to a shell:
 
@@ -80,30 +80,6 @@ systemctl status litd
 systemctl status lndhub
 systemctl status syncthing
 ```
-
-### Build from Source
-
-```bash
-apt update && apt install -y git wget sudo curl
-
-cd /tmp
-wget https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
-sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
-echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
-source ~/.profile
-
-cd ~
-git clone https://github.com/ripsline/virtual-private-node.git
-cd virtual-private-node
-go mod tidy
-go build -o rlvpn ./cmd/
-sudo install -m 755 ./rlvpn /usr/local/bin/rlvpn
-curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash
-```
-
-The bootstrap script detects that`rlvpn` is already installed and
-skips the download.
 
 ### Software Verification
 
@@ -128,6 +104,27 @@ cat /var/log/rlvpn.log
 
 For manual binary verification before installation, see
 [Release Verification](docs/verifying.md).
+
+### Build from Source
+
+```bash
+apt update && apt install -y git wget sudo curl
+
+cd /tmp
+wget https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
+source ~/.profile
+
+cd ~
+git clone https://github.com/ripsline/virtual-private-node.git
+cd virtual-private-node
+go mod tidy
+go build -o rlvpn ./cmd/
+sudo install -m 755 ./rlvpn /usr/local/bin/rlvpn
+curl -sL https://raw.githubusercontent.com/ripsline/virtual-private-node/main/virtual-private-node.sh | bash
+```
 
 ### Connecting Zeus Wallet
 
@@ -194,10 +191,10 @@ Tor tunnel. Both are secure in transit.
 ### Syncthing Channel Backups
 
 Syncthing automatically syncs your LND `channel.backup` file to
-your local device. No cloud services. No trust. If your VPS dies,
+your local device. No cloud services. No trust. If your Server dies,
 recover your channels with your seed phrase and the backup file.
 
-The sync connection is direct between your VPS and your device
+The sync connection is direct between your Node and your device
 over an encrypted channel. Syncthing uses mutual TLS authentication
 with device keys — only devices you explicitly approve can connect.
 Discovery servers and relays are disabled.
@@ -207,11 +204,11 @@ Discovery servers and relays are disabled.
 1. Install Syncthing on your device from [syncthing.net](https://syncthing.net)
 2. Disable discovery, relays, and NAT traversal in local Syncthing settings
 3. Pair your device from the Add-ons tab in the dashboard
-4. Add the VPS as a remote device in your local Syncthing
+4. Add the Node as a remote device in your local Syncthing
 5. Accept the backup folder share and set it to Receive Only
 
 Your `channel.backup` syncs automatically whenever both devices are
-online. The Syncthing web UI on the VPS is accessible over Tor for
+online. The Syncthing web UI on the Node is accessible over Tor for
 advanced configuration.
 
 For the full setup guide, see
@@ -271,7 +268,7 @@ grep "Tor" /var/log/rlvpn.log
 ### Architecture
 
 ```
-User SSH → ripsline@VPS → rlvpn dashboard (non-root)
+User SSH → ripsline@<server-ip-address> → rlvpn dashboard (non-root)
                              ↓
               sudo per-action → systemctl, bitcoin-cli, lncli
               press q → shell with bitcoin-cli, lncli wrappers

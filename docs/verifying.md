@@ -1,6 +1,6 @@
 ## Release Verification
 
-Verify the bootstrap binary before installation.
+Verify signatures before installation.
 
 ### Import the release signing key
 
