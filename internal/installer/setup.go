@@ -391,7 +391,6 @@ func RunWalletCreation(cfg *config.AppConfig) error {
 	fmt.Println()
 	fmt.Println("  Store it safely:")
 	fmt.Println("  • Write on paper and store securely")
-	fmt.Println("  • Save in a password manager")
 	fmt.Println("  • Never share it with anyone")
 	fmt.Println()
 	fmt.Println("  ═══════════════════════════════════════════")

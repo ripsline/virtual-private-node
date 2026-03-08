@@ -265,7 +265,7 @@ else routes through Tor.
 
 Verify Tor routing after install:
 ```bash
-grep "Tor routing" /var/log/rlvpn.log
+grep "Tor" /var/log/rlvpn.log
 ```
 
 ### Architecture

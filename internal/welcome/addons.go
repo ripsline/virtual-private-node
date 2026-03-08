@@ -141,7 +141,9 @@ func (m Model) addonLndHubCard(w, h int) string {
 	} else if !m.cfg.HasLND() || !m.cfg.WalletExists() {
 		lines = append(lines, theme.Grayed.Render("Requires: "))
 		lines = append(lines, theme.Grayed.Render("LND + Wallet"))
-		lines = append(lines, theme.Grayed.Render("+ BTC fully synced"))
+	} else if m.status != nil && !m.status.btcSynced {
+		lines = append(lines, theme.Grayed.Render("Waiting for Bitcoin"))
+		lines = append(lines, theme.Grayed.Render("to finish syncing"))
 	} else {
 		lines = append(lines, theme.RedDot.Render("●")+" "+
 			theme.Dim.Render("Not installed"))
@@ -151,8 +153,9 @@ func (m Model) addonLndHubCard(w, h int) string {
 
 	border := theme.NormalBorder
 	if m.addonFocus == 1 {
-		if (m.cfg.HasLND() && m.cfg.WalletExists()) ||
-			m.cfg.LndHubInstalled {
+		if m.cfg.LndHubInstalled ||
+			(m.cfg.HasLND() && m.cfg.WalletExists() &&
+				(m.status == nil || m.status.btcSynced)) {
 			border = theme.SelectedBorder
 		} else {
 			border = theme.GrayedBorder

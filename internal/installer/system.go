@@ -213,13 +213,22 @@ func logTorStatus() error {
 	}
 	logger.Install("torsocks available — downloads will route through Tor")
 
-	output, err := system.RunContext(10*time.Second,
-		"torsocks", "curl", "-s", "--max-time", "5",
-		"https://check.torproject.org/api/ip")
-	if err == nil && strings.Contains(output, `"IsTor":true`) {
-		logger.Install("Tor routing CONFIRMED via check.torproject.org")
-	} else {
-		logger.Install("WARNING: Tor routing check failed — verify manually")
+	confirmed := false
+	for attempt := 0; attempt < 3; attempt++ {
+		output, err := system.RunContext(15*time.Second,
+			"torsocks", "curl", "-s", "--max-time", "10",
+			"https://check.torproject.org/api/ip")
+		if err == nil && strings.Contains(output, `"IsTor":true`) {
+			logger.Install("Tor routing CONFIRMED via check.torproject.org")
+			confirmed = true
+			break
+		}
+		if attempt < 2 {
+			time.Sleep(3 * time.Second)
+		}
+	}
+	if !confirmed {
+		logger.Install("WARNING: Tor routing check timed out after 3 attempts — verify with: torsocks curl -s https://check.torproject.org/api/ip")
 	}
 	return nil
 }
