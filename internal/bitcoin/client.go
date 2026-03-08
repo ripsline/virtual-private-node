@@ -27,7 +27,7 @@ type blockchainInfoResponse struct {
 }
 
 func GetBlockchainInfo() *BlockchainInfo {
-	output, err := system.SudoRunContext(5*time.Second,
+	output, err := system.SudoRunContext(10*time.Second,
 		"-u", "bitcoin", "bitcoin-cli",
 		"-datadir="+paths.BitcoinDataDir, "-conf="+paths.BitcoinConf,
 		"getblockchaininfo")

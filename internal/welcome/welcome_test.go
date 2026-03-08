@@ -464,6 +464,8 @@ func TestAddonsLndHubRequiresLND(t *testing.T) {
 }
 
 func TestAddonsLndHubInstallWithLND(t *testing.T) {
+	// LND service is not running in test environment,
+	// so install should be blocked (shellAction stays svNone).
 	cfg := config.Default()
 	cfg.LNDInstalled = true
 	cfg.WalletCreated = true
@@ -475,9 +477,9 @@ func TestAddonsLndHubInstallWithLND(t *testing.T) {
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
-	if m.shellAction != svLndHubInstall {
-		t.Errorf("enter on LndHub with LND+wallet: got shellAction %d, want %d",
-			m.shellAction, svLndHubInstall)
+	if m.shellAction != svNone {
+		t.Errorf("enter on LndHub with LND not running: got shellAction %d, want %d (svNone — blocked)",
+			m.shellAction, svNone)
 	}
 }
 
@@ -706,5 +708,71 @@ func TestHubNameMaxLength(t *testing.T) {
 	m = newM.(Model)
 	if len(m.hubNameInput) != 30 {
 		t.Errorf("name length: got %d, want 30 (max)", len(m.hubNameInput))
+	}
+}
+
+// ── Service Names Helper ─────────────────────────────────
+
+func TestServiceNamesDefault(t *testing.T) {
+	cfg := config.Default()
+	names := serviceNames(cfg)
+	if len(names) != 2 {
+		t.Errorf("default: got %d services, want 2", len(names))
+	}
+	if names[0] != "tor" || names[1] != "bitcoind" {
+		t.Errorf("default: got %v, want [tor bitcoind]", names)
+	}
+}
+
+func TestServiceNamesWithLND(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	names := serviceNames(cfg)
+	if len(names) != 3 {
+		t.Errorf("with LND: got %d, want 3", len(names))
+	}
+	if names[2] != "lnd" {
+		t.Errorf("third service: got %q, want lnd", names[2])
+	}
+}
+
+func TestServiceNamesFullStack(t *testing.T) {
+	cfg := config.Default()
+	cfg.LNDInstalled = true
+	cfg.LITInstalled = true
+	cfg.SyncthingInstalled = true
+	cfg.LndHubInstalled = true
+	names := serviceNames(cfg)
+	expected := []string{"tor", "bitcoind", "lnd", "litd", "syncthing", "lndhub"}
+	if len(names) != len(expected) {
+		t.Fatalf("full stack: got %d, want %d", len(names), len(expected))
+	}
+	for i, want := range expected {
+		if names[i] != want {
+			t.Errorf("[%d]: got %q, want %q", i, names[i], want)
+		}
+	}
+}
+
+func TestServiceNamesHybridProxy(t *testing.T) {
+	cfg := config.Default()
+	cfg.LndHubInstalled = true
+	cfg.P2PMode = "hybrid"
+	names := serviceNames(cfg)
+	last := names[len(names)-1]
+	if last != "lndhub-proxy" {
+		t.Errorf("last: got %q, want lndhub-proxy", last)
+	}
+}
+
+func TestServiceNamesNoProxyTorMode(t *testing.T) {
+	cfg := config.Default()
+	cfg.LndHubInstalled = true
+	cfg.P2PMode = "tor"
+	names := serviceNames(cfg)
+	for _, n := range names {
+		if n == "lndhub-proxy" {
+			t.Error("tor mode should not include lndhub-proxy")
+		}
 	}
 }

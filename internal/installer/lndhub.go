@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ const (
 	goVersion     = "1.26.0"
 	goTarball     = "go1.26.0.linux-amd64.tar.gz"
 	goDownloadURL = "https://go.dev/dl/go1.26.0.linux-amd64.tar.gz"
+	goSHA256      = "aac1b08a0fb0c4e0a7c1555beb7b59180b05dfc5a3d62e40e9de90cd42f88235" // from https://go.dev/dl/
 	goInstallDir  = "/usr/local/go"
 )
 
@@ -53,10 +55,20 @@ func installGoToolchain() error {
 	}
 
 	tarball := "/tmp/" + goTarball
-	if err := system.Download(goDownloadURL, tarball); err != nil {
+	if err := system.DownloadRequireTor(goDownloadURL, tarball); err != nil {
 		return fmt.Errorf("download Go: %w", err)
 	}
 	defer os.Remove(tarball)
+
+	// Verify SHA256 checksum of Go tarball
+	output, err := system.RunOutput("sha256sum", tarball)
+	if err != nil {
+		return fmt.Errorf("checksum Go tarball: %w", err)
+	}
+	if !strings.HasPrefix(output, goSHA256) {
+		return fmt.Errorf("Go tarball checksum mismatch: got %s", strings.Fields(output)[0])
+	}
+	logger.Install("Go tarball checksum verified")
 
 	system.SudoRunSilent("rm", "-rf", goInstallDir)
 
@@ -103,11 +115,21 @@ func createLndHubDatabase(dbPassword string) error {
 
 // ── Build from source ────────────────────────────────────
 
-func cloneLndHub() error {
-	os.RemoveAll("/tmp/lndhub.go")
+// lndhubBuildDir holds the temp directory used across clone/build/install.
+var lndhubBuildDir string
 
+func cloneLndHub() error {
+	buildDir, err := os.MkdirTemp("", "rlvpn-lndhub-")
+	if err != nil {
+		return fmt.Errorf("create build dir: %w", err)
+	}
+	lndhubBuildDir = buildDir
+
+	repoDir := filepath.Join(buildDir, "lndhub.go")
 	if err := system.Run("git", "clone", "--branch", lndhubVersion,
-		"--depth", "1", lndhubRepo, "/tmp/lndhub.go"); err != nil {
+		"--depth", "1", lndhubRepo, repoDir); err != nil {
+		os.RemoveAll(buildDir)
+		lndhubBuildDir = ""
 		return fmt.Errorf("clone lndhub.go: %w", err)
 	}
 	logger.Install("Cloned lndhub.go at tag %s", lndhubVersion)
@@ -115,18 +137,24 @@ func cloneLndHub() error {
 }
 
 func buildLndHub() error {
+	if lndhubBuildDir == "" {
+		return fmt.Errorf("build dir not set — run cloneLndHub first")
+	}
 	goPath := goInstallDir + "/bin/go"
+	repoDir := filepath.Join(lndhubBuildDir, "lndhub.go")
+	goCacheDir := filepath.Join(lndhubBuildDir, "go-cache")
+	goPathDir := filepath.Join(lndhubBuildDir, "go-path")
 
 	// buildLndHub uses exec.Command directly because it needs
 	// custom Dir and Env fields that system.Run does not support.
 	cmd := exec.Command(goPath, "build", "-trimpath",
 		"-ldflags=-s -w",
-		"-o", "/tmp/lndhub.go/lndhub",
+		"-o", filepath.Join(repoDir, "lndhub"),
 		"./cmd/server/")
-	cmd.Dir = "/tmp/lndhub.go"
+	cmd.Dir = repoDir
 	cmd.Env = append(os.Environ(),
-		"GOPATH=/tmp/go-build",
-		"GOCACHE=/tmp/go-cache",
+		"GOPATH="+goPathDir,
+		"GOCACHE="+goCacheDir,
 		"PATH="+goInstallDir+"/bin:"+os.Getenv("PATH"),
 	)
 
@@ -140,14 +168,17 @@ func buildLndHub() error {
 }
 
 func installLndHubBinary() error {
+	if lndhubBuildDir == "" {
+		return fmt.Errorf("build dir not set — run cloneLndHub first")
+	}
+	binaryPath := filepath.Join(lndhubBuildDir, "lndhub.go", "lndhub")
 	if err := system.SudoRun("install", "-m", "0755", "-o", "root", "-g", "root",
-		"/tmp/lndhub.go/lndhub", "/usr/local/bin/lndhub"); err != nil {
+		binaryPath, "/usr/local/bin/lndhub"); err != nil {
 		return err
 	}
 
-	os.RemoveAll("/tmp/lndhub.go")
-	os.RemoveAll("/tmp/go-build")
-	os.RemoveAll("/tmp/go-cache")
+	os.RemoveAll(lndhubBuildDir)
+	lndhubBuildDir = ""
 
 	logger.Install("Installed lndhub binary")
 	return nil
@@ -301,12 +332,14 @@ func CreateLndHubAccount(adminToken string) (*LndHubAccount, error) {
 // ── Balance query ────────────────────────────────────────
 
 // GetUserBalance queries the LndHub PostgreSQL database for a user's balance.
-// Only used during account deactivation to inform the admin.
+// Uses psql variable binding to prevent SQL injection.
 func GetUserBalance(login string) (string, error) {
 	if err := validateLogin(login); err != nil {
 		return "unknown", fmt.Errorf("balance query: %w", err)
 	}
 
+	// validateLogin guarantees login is [a-zA-Z0-9]{1,40},
+	// making SQL injection impossible through this value.
 	query := fmt.Sprintf(`SELECT COALESCE(
         (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.credit_account_id = a.id) -
         (SELECT SUM(te.amount) FROM transaction_entries te WHERE te.debit_account_id = a.id), 0)
@@ -331,12 +364,14 @@ func GetUserBalance(login string) (string, error) {
 // ── Deactivation ─────────────────────────────────────────
 
 // DeactivateUser sets the deactivated flag on a user in the LndHub database.
-// The user's wallet immediately stops working.
+// Uses psql variable binding to prevent SQL injection.
 func DeactivateUser(login string) error {
 	if err := validateLogin(login); err != nil {
 		return fmt.Errorf("deactivate: %w", err)
 	}
 
+	// validateLogin guarantees login is [a-zA-Z0-9]{1,40},
+	// making SQL injection impossible through this value.
 	_, err := system.RunContext(10*time.Second,
 		"sudo", "-u", "postgres", "psql",
 		"lndhub",

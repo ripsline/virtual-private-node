@@ -5,7 +5,6 @@ package system
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 	"os"
 	"os/exec"
 	"strings"
@@ -95,44 +94,97 @@ func SudoRunSilent(name string, args ...string) error {
 }
 
 // SudoWriteFile writes content to a system path via sudo.
-// Writes to /tmp first, then sudo copies to the destination.
+// Uses os.CreateTemp for secure temp file creation (O_EXCL prevents symlink attacks).
 func SudoWriteFile(path string, content []byte, perm os.FileMode) error {
-	tmpFile := fmt.Sprintf("/tmp/rlvpn-%d-%d.tmp", os.Getpid(), rand.IntN(1000000))
-	if err := os.WriteFile(tmpFile, content, 0600); err != nil {
+	tmpFile, err := os.CreateTemp("", "rlvpn-write-")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.Write(content); err != nil {
+		tmpFile.Close()
 		return fmt.Errorf("write temp file: %w", err)
 	}
-	defer os.Remove(tmpFile)
-	if err := SudoRun("cp", tmpFile, path); err != nil {
+	tmpFile.Close()
+
+	if err := SudoRun("cp", tmpPath, path); err != nil {
 		return err
 	}
 	return SudoRun("chmod", fmt.Sprintf("%o", perm), path)
 }
 
-// Download fetches a URL to a local path using wget or curl.
+// Download fetches a URL to a local path.
+// Uses torsocks if available, but does not require it.
+// Used only for downloads before Tor is installed (apt keys, etc.).
 func Download(url, dest string) error {
+	return doDownload(url, dest, false)
+}
+
+// DownloadRequireTor fetches a URL and fails if torsocks is not available.
+// Retries up to 3 times to handle intermittent Tor DNS resolution failures.
+func DownloadRequireTor(url, dest string) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		lastErr = doDownload(url, dest, true)
+		if lastErr == nil {
+			return nil
+		}
+		if attempt < 2 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	return lastErr
+}
+
+func doDownload(url, dest string, requireTor bool) error {
+	wrapper := torWrapper()
+	if requireTor && wrapper == "" {
+		return fmt.Errorf("torsocks not available — cannot download over Tor")
+	}
 	if _, err := exec.LookPath("wget"); err == nil {
+		if wrapper != "" {
+			return Run(wrapper, "wget", "-q", "-O", dest, url)
+		}
 		return Run("wget", "-q", "-O", dest, url)
+	}
+	if wrapper != "" {
+		return Run(wrapper, "curl", "-sL", "-o", dest, url)
 	}
 	return Run("curl", "-sL", "-o", dest, url)
 }
 
+// torWrapper returns "torsocks" if available, empty string otherwise.
+func torWrapper() string {
+	if _, err := exec.LookPath("torsocks"); err == nil {
+		return "torsocks"
+	}
+	return ""
+}
+
 // SudoReadFile reads a file that requires root/sudo access.
-// Copies to a temp file the current user can read, reads it,
-// then deletes the temp file. Safe for binary files.
+// Uses os.CreateTemp for secure temp file creation.
 func SudoReadFile(path string) ([]byte, error) {
-	tmp := fmt.Sprintf("/tmp/rlvpn-read-%d-%d.tmp", os.Getpid(), rand.IntN(1000000))
-	defer os.Remove(tmp)
-	if err := SudoRun("cp", path, tmp); err != nil {
+	tmpFile, err := os.CreateTemp("", "rlvpn-read-")
+	if err != nil {
+		return nil, fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	if err := SudoRun("cp", path, tmpPath); err != nil {
 		return nil, fmt.Errorf("sudo cp %s: %w", path, err)
 	}
-	if err := SudoRun("chmod", "0600", tmp); err != nil {
+	if err := SudoRun("chmod", "0600", tmpPath); err != nil {
 		return nil, fmt.Errorf("chmod tmp: %w", err)
 	}
 	if err := SudoRun("chown",
-		fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), tmp); err != nil {
+		fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), tmpPath); err != nil {
 		return nil, fmt.Errorf("chown tmp: %w", err)
 	}
-	data, err := os.ReadFile(tmp)
+	data, err := os.ReadFile(tmpPath)
 	if err != nil {
 		return nil, fmt.Errorf("read tmp: %w", err)
 	}

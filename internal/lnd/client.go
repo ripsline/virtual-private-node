@@ -47,7 +47,7 @@ func lncliArgs(network string, subcmd ...string) []string {
 
 func GetInfo(network string) (*NodeInfo, error) {
 	args := lncliArgs(network, "getinfo")
-	output, err := system.SudoRunContext(5*time.Second,
+	output, err := system.SudoRunContext(10*time.Second,
 		args[0], args[1:]...)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func GetInfo(network string) (*NodeInfo, error) {
 
 func GetBalance(network string) (*WalletBalance, error) {
 	args := lncliArgs(network, "walletbalance")
-	output, err := system.SudoRunContext(5*time.Second,
+	output, err := system.SudoRunContext(10*time.Second,
 		args[0], args[1:]...)
 	if err != nil {
 		return nil, err

@@ -12,7 +12,7 @@ import (
 )
 
 func installTor() error {
-	return system.SudoRun("apt-get", "install", "-y", "-qq", "tor")
+	return system.SudoRun("apt-get", "install", "-y", "-qq", "tor", "torsocks")
 }
 
 // BuildTorConfig generates the complete torrc content from config state.

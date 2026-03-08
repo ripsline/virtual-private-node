@@ -16,6 +16,15 @@ const (
 	DefaultPath = paths.ConfigFile
 )
 
+// AppConfig holds the application state persisted to disk.
+//
+// Security note: passwords and tokens (LITPassword, SyncthingPassword,
+// LndHubAdminToken, LndHubDBPassword) are stored in plaintext. This is a
+// deliberate tradeoff for a single-user dedicated node. The config file
+// has 0600 permissions, and the machine runs a single non-root user.
+// Alternatives (OS keyring, encrypted vault) add complexity without
+// meaningful security benefit on a dedicated node where the attacker
+// model is remote access, not local privilege escalation.
 type AppConfig struct {
 	InstallComplete    bool              `json:"install_complete"`
 	InstallVersion     string            `json:"install_version,omitempty"`
@@ -86,6 +95,9 @@ func (s *Store) Load() (*AppConfig, error) {
 	return &cfg, nil
 }
 
+// Save writes the config to disk atomically.
+// Writes to a temp file in the same directory, fsyncs, then renames.
+// This ensures the config file is never partially written.
 func (s *Store) Save(cfg *AppConfig) error {
 	if err := os.MkdirAll(s.Dir, 0750); err != nil {
 		return err
@@ -94,7 +106,30 @@ func (s *Store) Save(cfg *AppConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.Path, data, 0600)
+	tmp, err := os.CreateTemp(s.Dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	tmp.Close()
+
+	return os.Rename(tmpPath, s.Path)
 }
 
 func Load() (*AppConfig, error) {

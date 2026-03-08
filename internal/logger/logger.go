@@ -21,23 +21,41 @@ package logger
 import (
 	"fmt"
 	"os"
+	"strings"
+	"sync"
 	"time"
 )
 
 const LogPath = "/var/log/rlvpn.log"
 
+var (
+	mu   sync.Mutex
+	file *os.File
+)
+
+func init() {
+	// Skip log file initialization during tests.
+	// Go test binaries have .test suffix in os.Args[0].
+	if len(os.Args) > 0 && strings.HasSuffix(os.Args[0], ".test") {
+		return
+	}
+	f, err := os.OpenFile(LogPath,
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	if err == nil {
+		file = f
+	}
+}
+
 func Log(section, format string, args ...interface{}) {
-	entry := fmt.Sprintf("[%s] [%s] %s\n",
+	mu.Lock()
+	defer mu.Unlock()
+	if file == nil {
+		return
+	}
+	fmt.Fprintf(file, "[%s] [%s] %s\n",
 		time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
 		section,
 		fmt.Sprintf(format, args...))
-	f, err := os.OpenFile(LogPath,
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	f.WriteString(entry)
 }
 
 func Install(format string, args ...interface{}) {

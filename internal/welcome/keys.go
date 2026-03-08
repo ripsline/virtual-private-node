@@ -4,6 +4,8 @@ package welcome
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -27,6 +29,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.fetchInFlight = false
 		m.status = &msg
+		// Handle wallet auto-detection (moved from fetchStatus to avoid data race)
+		if msg.walletDetected && !m.cfg.WalletCreated {
+			m.cfg.WalletCreated = true
+			m.saveCfg()
+		}
 		return m, nil
 	case latestVersionMsg:
 		m.latestVersion = string(msg)
@@ -169,6 +176,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.syncDeviceInput != "" {
+					// Validate Syncthing Device ID format:
+					// 8 groups of 7 chars separated by hyphens
+					id := m.syncDeviceInput
+					parts := strings.Split(id, "-")
+					if len(parts) != 8 {
+						m.syncPairError = "Invalid Device ID format. Expected 8 groups separated by hyphens (e.g., XXXXXXX-XXXXXXX-...)"
+						return m, nil
+					}
+					for _, p := range parts {
+						if len(p) != 7 {
+							m.syncPairError = "Invalid Device ID format. Each group should be 7 characters."
+							return m, nil
+						}
+					}
 					m.syncPairError = ""
 					return m, pairSyncthingDeviceCmd(
 						m.syncDeviceInput)
@@ -242,6 +263,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.subview = svNone
 			}
 			return m, nil
+		case "s":
+			if m.subview == svSyncthingWebUI ||
+				m.subview == svLITDetail {
+				m.showSecrets = !m.showSecrets
+				return m, nil
+			}
 		case "a":
 			if m.subview == svSyncthingDetail {
 				m.syncDeviceInput = ""
@@ -252,8 +279,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "m":
 			if m.subview == svZeus {
-				m.shellAction = svMacaroonShell
-				return m, tea.Quit
+				return m, showMacaroonCmd(m.cfg)
 			}
 		case "r":
 			if m.subview == svZeus {
@@ -530,10 +556,14 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 		case "a":
 			m.svcConfirm = "start"
 		case "l":
-			m.logSvcName = m.svcName(m.svcCursor)
-			m.shellAction = svLogView
-			m.cardActive = false
-			return m, tea.Quit
+			svc := m.svcName(m.svcCursor)
+			c := exec.Command("bash", "-c",
+				"clear && sudo journalctl -u "+svc+" -n 100 --no-pager"+
+					" && echo && echo '  Press Enter to return...'"+
+					" && read")
+			return m, tea.ExecProcess(c, func(err error) tea.Msg {
+				return svcActionDoneMsg{}
+			})
 		}
 	}
 
@@ -544,8 +574,15 @@ func (m Model) handleCardKey(key string) (tea.Model, tea.Cmd) {
 				action := m.sysConfirm
 				m.sysConfirm = ""
 				if action == "update" {
-					m.shellAction = svSystemUpdate
-					return m, tea.Quit
+					c := exec.Command("bash", "-c",
+						"clear && sudo apt-get update && sudo apt-get upgrade -y"+
+							" && echo && echo '  ✅ Update complete'"+
+							" && echo '  Press Enter to return...'"+
+							" && read")
+					return m, tea.ExecProcess(c,
+						func(err error) tea.Msg {
+							return svcActionDoneMsg{}
+						})
 				}
 				if action == "reboot" {
 					return m, func() tea.Msg {
@@ -695,6 +732,12 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
 			return m, nil
 		}
+		if !system.IsServiceActive("lnd") {
+			return m, nil
+		}
+		if m.status != nil && !m.status.btcSynced {
+			return m, nil
+		}
 		m.shellAction = svLndHubInstall
 		return m, tea.Quit
 	case 2: // LIT
@@ -705,6 +748,9 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 		if !m.cfg.HasLND() || !m.cfg.WalletExists() {
 			return m, nil
 		}
+		if !system.IsServiceActive("lnd") {
+			return m, nil
+		}
 		m.shellAction = svLITInstall
 		return m, tea.Quit
 	}
@@ -712,44 +758,44 @@ func (m Model) handleAddonEnter() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) svcCount() int {
-	n := 2
-	if m.cfg.HasLND() {
-		n++
-	}
-	if m.cfg.LITInstalled {
-		n++
-	}
-	if m.cfg.SyncthingInstalled {
-		n++
-	}
-	if m.cfg.LndHubInstalled {
-		n++
-	}
-	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
-		n++
-	}
-	return n
+	return len(serviceNames(m.cfg))
 }
 
 func (m Model) svcName(i int) string {
-	names := []string{"tor", "bitcoind"}
-	if m.cfg.HasLND() {
-		names = append(names, "lnd")
-	}
-	if m.cfg.LITInstalled {
-		names = append(names, "litd")
-	}
-	if m.cfg.SyncthingInstalled {
-		names = append(names, "syncthing")
-	}
-	if m.cfg.LndHubInstalled {
-		names = append(names, "lndhub")
-	}
-	if m.cfg.LndHubInstalled && m.cfg.P2PMode == "hybrid" {
-		names = append(names, "lndhub-proxy")
-	}
+	names := serviceNames(m.cfg)
 	if i < len(names) {
 		return names[i]
 	}
 	return ""
+}
+
+// showMacaroonCmd reads the macaroon hex, writes to a temp file,
+// and displays it via tea.ExecProcess. TUI resumes on same screen.
+func showMacaroonCmd(cfg *config.AppConfig) tea.Cmd {
+	mac := readMacaroonHex(cfg)
+	if mac == "" {
+		return nil
+	}
+
+	tmpFile, err := os.CreateTemp("", "rlvpn-macaroon-")
+	if err != nil {
+		return nil
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.WriteString(mac)
+	tmpFile.Close()
+
+	c := exec.Command("bash", "-c",
+		"clear && echo && echo '  ═══════════════════════════════════════════'"+
+			" && echo '    Admin Macaroon (hex)'"+
+			" && echo '  ═══════════════════════════════════════════'"+
+			" && echo && cat "+tmpPath+
+			" && echo && echo"+
+			" && echo '  Press Enter to return...'"+
+			" && read"+
+			" && rm -f "+tmpPath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		os.Remove(tmpPath)
+		return svcActionDoneMsg{}
+	})
 }

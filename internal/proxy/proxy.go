@@ -21,6 +21,8 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/ripsline/virtual-private-node/internal/paths"
 )
 
@@ -39,15 +41,38 @@ func Run() error {
 	target, _ := url.Parse("http://127.0.0.1:" + paths.LndHubInternalPort)
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
+	// Rate limiter: 10 requests/second with burst of 20.
+	// Protects LndHub from DoS. Normal wallet usage is well within limits.
+	limiter := rate.NewLimiter(rate.Limit(10), 20)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
+
+		// Strip X-Forwarded-For to prevent logging user IPs in LndHub.
+		// LndHub authenticates by credentials, not by source IP.
+		r.Header.Del("X-Forwarded-For")
+		r.Header.Del("X-Real-Ip")
+
+		// Security headers
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		proxy.ServeHTTP(w, r)
+	})
+
 	server := &http.Server{
 		Addr:    "0.0.0.0:" + paths.LndHubExternalPort,
-		Handler: proxy,
+		Handler: handler,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 16, // 64KB max headers
 	}
 
 	fmt.Printf("LndHub TLS proxy listening on %s → 127.0.0.1:%s\n",

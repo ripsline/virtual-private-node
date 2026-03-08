@@ -1,24 +1,30 @@
-## Virtual Private Node
+# Virtual Private Node
 
 A one-command installer for a private Lightning node on Debian —
 Bitcoin Core, LND, and Tor, configured and running in minutes.
 
-After installation, manage your node with `bitcoin-cli`, `lncli`,
-and `systemctl`. No wrappers, no abstractions. Your keys, your node.
-
-### What it installs
-
-- **Tor** — all connections routed through Tor
-- **Bitcoin Core 29.3** — pruned (25 GB), Tor-routed, wallet disabled
-
-### Additional software (from Dashboard and Add-ons)
-
-- **LND 0.20.0-beta** — Lightning with Tor hidden services (from Dashboard)
-- **Lightning Terminal v0.16.0-alpha** — browser UI for channel management (from Add-ons)
-- **LndHub.go v1.0.2** — Lightning accounts for family, friends, and agents (from Add-ons, built from source)
-- **Syncthing** — automatic LND channel backup to your local device (from Add-ons)
+After installation, manage your node with the beautiful terminal UI
+or  `bitcoin-cli`, `lncli`, and `systemctl`. 
+No wrappers, no abstractions. Your keys, your node.
 
 ![Screenshot](docs/images/dashboard.png)
+
+## What gets installed
+
+### Base (automatic)
+
+- **Bitcoin Core** — pruned node, Tor-only P2P, GPG-verified with 5 independent signatures
+- **Tor** — all traffic routed through Tor by default
+- **UFW firewall** — deny all incoming except SSH
+- **fail2ban** — brute force protection
+- **Unattended upgrades** — automatic Debian security updates
+
+### Optional (from the TUI)
+
+- **LND** — Lightning Network daemon with Tor hidden services
+- **Lightning Terminal** — browser-based channel management over Tor
+- **Syncthing** — automatic LND channel backup to your local device
+- **LndHub.go** — Lightning accounts
 
 ### Requirements
 
@@ -229,6 +235,38 @@ For the full setup guide, see
 - Syncthing sync port (22000) rejects unapproved devices via mutual TLS before any data exchange
 - Syncthing web UI accessible only via Tor
 - Bitcoin Core wallet disabled (Lightning-only node)
+- All downloads after Tor installation route through torsocks
+- apt package manager configured to use Tor SOCKS proxy
+- Atomic config writes with fsync + rename (prevents corruption on power loss)
+- Secure temp file creation with O_EXCL (prevents symlink attacks)
+- Database queries protected by strict input validation
+- LndHub TLS proxy: rate limited (10 req/s), X-Forwarded-For stripped
+- Public IP detection uses kernel routing table (no external network calls)
+- Mandatory seed confirmation ("I SAVED MY SEED") during wallet creation
+
+### Privacy — Network Traffic
+
+The bootstrap script makes two types of network calls:
+
+**Phase 1 (clearnet, unavoidable):**
+- `apt-get install tor torsocks gnupg sudo` — Debian package mirrors
+
+**Phase 2 (all through Tor):**
+- rlvpn binary download from GitHub
+- GPG signing key import from keyserver
+- Bitcoin Core, LND, LIT downloads
+- Go toolchain download
+- Syncthing repository key
+- All subsequent apt operations
+
+After bootstrap, the only clearnet traffic is Syncthing sync (port 22000)
+if you install it, and LND P2P if you choose hybrid mode. Everything
+else routes through Tor.
+
+Verify Tor routing after install:
+```bash
+grep "Tor" /var/log/rlvpn.log
+```
 
 ### Architecture
 
